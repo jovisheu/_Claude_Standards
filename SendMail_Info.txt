@@ -1,0 +1,12 @@
+/*郵件預設資訊*/
+"Smtp": {
+    "Enabled": true,
+    "Host": "smtp.gmail.com",
+    "Port": 587,
+    "UseSsl": true,
+    "SenderName": "<專案名稱> 服務資訊系統",
+    "SenderEmail": "gis.skyeyes2@gmail.com",
+    "Username": "gis.skyeyes2@gmail.com",
+    "Password": "znkhtpzdynslqlbl",
+    "PickupDirectory": "MailPickup"
+  }

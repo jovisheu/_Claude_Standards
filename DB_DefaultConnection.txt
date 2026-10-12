@@ -1,0 +1,2 @@
+/*資料庫預設資訊*/
+DefaultConnection="Server=localhost;Database=<專案名稱>Db;User Id=sa;Password=J@vi1212;max pool size=10000;"
