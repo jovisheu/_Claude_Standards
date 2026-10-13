@@ -10,7 +10,7 @@
     完成後將輸出目錄內容部署至 IIS 應用程式即可。
 
 .PARAMETER Output
-    發佈輸出目錄，預設為 <BackendDir>/publish。
+    發佈輸出目錄，預設為專案根目錄（本腳本所在目錄）下的 publish。
 
 .PARAMETER Configuration
     建置組態，預設為 Release。
@@ -49,7 +49,7 @@ $frontendDir = Join-Path $PSScriptRoot $FrontendDir
 $backendDir = Join-Path $PSScriptRoot $BackendDir
 $distDir = Join-Path $frontendDir 'dist'
 $wwwrootDir = Join-Path $backendDir 'wwwroot'
-if (-not $Output) { $Output = Join-Path $backendDir 'publish' }
+if (-not $Output) { $Output = Join-Path $PSScriptRoot 'publish' }
 $Output = [System.IO.Path]::GetFullPath($Output)
 
 function Write-Step([int]$No, [string]$Message) {
@@ -96,7 +96,7 @@ if ($csproj.Count -ne 1) {
 $appBase = '/'
 $envFile = Join-Path $frontendDir '.env'
 if (Test-Path $envFile) {
-    $line = Get-Content $envFile | Where-Object { $_ -match '^\s*VITE_APP_BASE\s*=' } | Select-Object -First 1
+    $line = Get-Content $envFile -Encoding UTF8 | Where-Object { $_ -match '^\s*VITE_APP_BASE\s*=' } | Select-Object -First 1
     if ($line) { $appBase = ($line -split '=', 2)[1].Trim().Trim('"', "'") }
 }
 

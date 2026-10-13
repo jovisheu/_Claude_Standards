@@ -33,7 +33,7 @@ disable-model-invocation: true
 範本用法：
 
 ```powershell
-.\publish.ps1                    # npm ci → npm run build → 重建 wwwroot → dotnet publish 至 backend/publish
+.\publish.ps1                    # npm ci → npm run build → 重建 wwwroot → dotnet publish 至專案根目錄 publish/
 .\publish.ps1 -SkipNpmInstall    # 略過 npm ci
 .\publish.ps1 -Output D:\Deploy  # 指定輸出目錄
 .\publish.ps1 -Runtime win-x86   # 指定目標平台（預設 win-x64）

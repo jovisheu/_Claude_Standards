@@ -9,10 +9,11 @@
 | `CLAUDE.md` | 通用規範 | 各專案 CLAUDE.md 匯入，每次對話載入 |
 | `references/auth-baseline.md` | 登入、密碼、忘記密碼、前端登入狀態的實作細節 | 建立或修改這些功能、資安檢查時 |
 | `skills/<名稱>/SKILL.md` | 共用 Skill | 執行該 Skill 時 |
-| `DB_DefaultConnection.txt` | 預設資料庫連線字串（明文密碼） | 只在 `new-project` 建立專案時 |
-| `SendMail_Info.txt` | 預設寄信設定（明文密碼） | 只在 `new-project` 建立專案時 |
+| `_Project_Info/Project_Info.txt` | 新專案的答案卷（專案名稱、用途必填，其餘選填） | 只在 `new-project` 建立專案時 |
+| `_Project_Info/DB_DefaultConnection.txt` | 預設資料庫連線字串（明文密碼） | 只在 `new-project` 建立專案時 |
+| `_Project_Info/SendMail_Info.txt` | 預設寄信設定（明文密碼） | 只在 `new-project` 建立專案時 |
 
-兩個 `.txt` 含明文密碼，不得複製進專案或納入任何版控。
+`_Project_Info/` 內的檔案含明文密碼，不得複製進專案或納入任何版控（本資料夾納入 git 時須將 `_Project_Info/` 加入 `.gitignore`）。
 
 ## 規範與 Skill 的分工
 
@@ -25,6 +26,6 @@
 
 ## 目前共用 Skill
 
-* `new-project`：依通用規範建立新專案，開工前逐項詢問必要資訊。
+* `new-project`：依通用規範建立新專案。設定取自 `_Project_Info/` 與預設值，採紅綠燈判斷：全部綠燈直接建立不詢問，只有紅燈項目（環境缺漏、目錄不為空、資料庫有既有資料表、建置失敗等，見 Skill 第 2 節）才詢問；完成後不 commit，只提醒。
 * `publish-project`：發佈專案並整理部署檢查清單（只在使用者明確要求時執行）。
 * `owasp-check`：依通用規範的資安規範與 `references/auth-baseline.md` 檢查專案。
