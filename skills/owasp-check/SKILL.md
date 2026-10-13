@@ -33,7 +33,7 @@ cd <backend> && dotnet list package --vulnerable --include-transitive
 | 注入 | `Process.Start\|Path.Combine` 搭配使用者輸入 | 指令／路徑注入 |
 | 加密 | `new Random\(\|Random.Shared` | 是否用於安全用途 |
 | 加密 | `appsettings*.json` 中的 `Password\|Key\|Secret\|pwd\|ConnectionStrings` | 連線字串、`Jwt:Key`、`Mail:Password` 須為 AES 加密值（含 `Password=` 或可直接讀出即為明文）；`AES256Key` 不可與其他專案相同 |
-| 身分驗證 | 種子資料（`HasData`）中的預設管理員 | 只存雜湊、不含明文密碼，且有已逾期的 `_Pwd_log`（首次登入強制變更） |
+| 身分驗證 | 種子資料（`HasData`）中的預設管理員 | 只存雜湊、不含明文密碼，且有對應的 `_Pwd_log`（建立日期為建立專案當日；首次登入不強制變更） |
 | 存取控制 | `AllowAnyOrigin\|WithOrigins` | CORS 範圍 |
 | 存取控制 | `\[AllowAnonymous\]` | 逐一確認確實需要開放 |
 | 存取控制 | Controller 缺少 `[Authorize(Policy` 的寫入端點 | 權限是否足夠 |

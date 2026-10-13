@@ -1,0 +1,69 @@
+@import 'tailwindcss';
+
+/* 主色（未指定時使用預設藍色） */
+@theme {
+  --color-primary-50: #eef5fd;
+  --color-primary-100: #d6e6fa;
+  --color-primary-200: #adcdf5;
+  --color-primary-300: #7aaeee;
+  --color-primary-400: #4a8fe5;
+  --color-primary-500: #2a7add;
+  --color-primary-600: #1e6fd9;
+  --color-primary-700: #1859b0;
+  --color-primary-800: #154a8f;
+  --color-primary-900: #123c73;
+}
+
+@layer base {
+  html,
+  body {
+    @apply bg-gray-100 text-gray-800;
+    font-family: 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
+  }
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1 rounded-md px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60;
+}
+
+@layer components {
+  .form-label {
+    @apply mb-1 block text-sm font-medium text-gray-700;
+  }
+
+  .form-input {
+    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-100 disabled:text-gray-500;
+  }
+
+  .btn-primary {
+    @apply btn bg-primary-600 text-white hover:bg-primary-700;
+  }
+
+  .btn-secondary {
+    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
+  }
+
+  .btn-danger {
+    @apply btn bg-red-600 text-white hover:bg-red-700;
+  }
+
+  .btn-link {
+    @apply text-sm text-primary-600 hover:text-primary-800 hover:underline;
+  }
+
+  .card {
+    @apply rounded-lg bg-white shadow-sm;
+  }
+
+  .table-base {
+    @apply min-w-full divide-y divide-gray-200 text-sm;
+  }
+
+  .table-base th {
+    @apply bg-gray-50 px-4 py-3 text-left font-medium whitespace-nowrap text-gray-600;
+  }
+
+  .table-base td {
+    @apply px-4 py-3 align-middle text-gray-700;
+  }
+}

@@ -1,0 +1,45 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.2.0" />
+    <PackageReference Include="MailKit" Version="4.18.1" />
+    <PackageReference Include="Microsoft.AspNetCore.Authentication.JwtBearer" Version="10.0.12" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.12">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.12" />
+    <PackageReference Include="SkiaSharp" Version="4.153.1" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.3.0" />
+  </ItemGroup>
+
+  <!-- 發佈輸出目錄不納入專案，避免下次發佈時被當成內容檔再複製一層 -->
+  <ItemGroup>
+    <Compile Remove="publish/**" />
+    <Content Remove="publish/**" />
+    <None Remove="publish/**" />
+    <EmbeddedResource Remove="publish/**" />
+  </ItemGroup>
+
+  <!-- 發佈時排除套件附帶的除錯符號（如 libSkiaSharp.pdb 約 90 MB），保留本專案的 pdb -->
+  <Target Name="RemovePackagePdbFromPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(Extension)' == '.pdb' And '%(Filename)' != '$(AssemblyName)'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- 郵件範本放在非公開目錄，建置與發佈時一併複製 -->
+  <ItemGroup>
+    <None Update="Template\**\*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

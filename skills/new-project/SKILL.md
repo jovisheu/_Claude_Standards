@@ -8,16 +8,22 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 
 規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）。先完整讀過兩個檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式。
 
-規則來源以上列檔案（及本 skill 指定的範本）為唯一依據；不參考 `存放路徑` 下的其他既有專案（如 TestProject），所有程式碼依規範重新產生。
+建立方式依第 25 項（`Project_Info.txt` 的 `使用範本`）決定：
+
+- **使用範本（預設）**：程式碼一律取自本 skill 的專案範本 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\new-project\templates\project\`（後端、前端、UI 樣式皆固定，確保每個專案一致），只替換佔位符與加入第 23 項業務功能，依第 3 節建立；不重新撰寫範本已有的程式。範本與規範不一致時以規範為準，並提醒使用者更新範本。
+- **不使用範本**：改讀 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\new-project\no-template.md`，以其步驟取代第 3 節，依規範重新產生所有程式碼。
+
+兩種方式都不參考 `存放路徑` 下的其他既有專案。
 
 ## 0. 指令寫法（減少權限詢問）
 
 紅綠燈只決定是否詢問設定值；Claude Code 的工具權限確認另外判斷，skill 無法略過。為了只在必要時跳出確認，指令一律依下列方式撰寫：
 
-- 一次一個指令、使用絕對路徑；不以 `cd ... &&`、`;` 串接多個指令，也不在指令前加變數設定（`VAR=... cmd`），除非該指令需要環境變數（如以 `ASPNETCORE_ENVIRONMENT` 啟動）。
+- 一次一個指令、使用絕對路徑；不以 `cd ... &&`、`;` 串接多個指令，也不在指令前加變數設定（`VAR=... cmd`）或用 `$env:` 設定環境變數；需要指定環境或覆寫設定時改用命令列參數（如 `--environment Production`、`--Security:Login:CaptchaEnabled=false`），讓指令以 `dotnet` 開頭，符合允許規則。
 - 讀檔、搜尋、寫檔、修改分別用 Read、Grep／Glob、Write、Edit 工具，不用 `cat`、`sed -i`、`echo >`、heredoc；列目錄可用 `ls`。
 - 不用 `python`（Windows 可能是會卡住的商店捷徑）。
-- 建立過程不刪除檔案：範本產生的多餘檔案留到第 4 節驗證完成後統一刪除（見第 4 節最後一項），只會詢問一次。
+- 全程不刪除檔案：使用範本時由範本複製建立；不使用範本時後端以空白範本 `dotnet new web` 建立、前端不使用 `npm create vite`（見 `no-template.md`）。兩者都不會產生需要刪除的檔案；`Remove-Item`、`rm` 在權限設定中一律詢問，因此不應出現在建立流程中。
+- 佔位符一律以 Edit 工具替換（同一檔案多處相同值可用 `replace_all`），不用 `sed -i` 或 PowerShell 字串取代（PowerShell 5.1 寫檔可能改變編碼或 BOM）。
 - 驗證時不以 `sqlcmd` 或其他方式異動資料庫資料（見第 4 節）；`sqlcmd` 只用於連線測試與唯讀查詢。
 - 讀取 `_Project_Info` 的明文密碼時，以 Read 工具讀取後直接作為參數使用，不在回報或指令輸出中顯示。
 
@@ -36,9 +42,9 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 
 ## 2. 紅綠燈判斷
 
-先讀取 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\_Project_Info\` 下的檔案並完成第 1 節檢查，再依下表判斷燈號；下列 24 項的值一律取自 `_Project_Info` 或預設值，不逐項詢問。
+先讀取 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\_Project_Info\` 下的檔案並完成第 1 節檢查，再依下表判斷燈號；下列 25 項的值一律取自 `_Project_Info` 或預設值，不逐項詢問。
 
-- **全部綠燈**：不詢問、不等待回覆，直接進入第 3 節。開工時輸出一次「採用設定摘要」（各項採用值與「將建立的資料表」，含第 23 項的業務資料表），明文密碼以 `***` 表示。
+- **全部綠燈**：不詢問、不等待回覆，直接進入第 3 節（不使用範本時改依 `no-template.md`）。開工時輸出一次「採用設定摘要」（各項採用值，含第 25 項建立方式，以及「將建立的資料表」，含第 23 項的業務資料表），明文密碼以 `***` 表示。
 - **任一紅燈**：只列出紅燈項目、原因與建議值詢問，綠燈項目不再列出；取得回覆後即開工，不再另外確認。
 - 建立過程中才出現的紅燈（如建置失敗、要覆蓋既有資料）同樣停下詢問；其餘步驟不中途詢問。
 
@@ -50,6 +56,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | 資料庫（第 5～8 項） | `DB_DefaultConnection.txt` 不存在、連線測試失敗，或目標資料庫已存在且含資料表 |
 | 業務功能（第 23 項） | 有填，但無法判斷資料表欄位、型別或關聯 |
 | 部署（第 19、20 項） | `部署方式` 不是 IIS／Kestrel，或指定前後端分開部署卻未提供來源白名單 |
+| 建立方式（第 25 項） | `使用範本` 不是留白、「是」或「否」；或使用範本但 `templates\project\` 不存在 |
 | 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗 |
 | 破壞性動作 | 任何會覆蓋、刪除既有檔案或資料庫的步驟 |
 
@@ -79,7 +86,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | `_LoginErr_log` | Id、Username、CreatedAt；索引 (Username, CreatedAt) | 登入失敗紀錄（鎖定判斷） |
 | `_Pwd_log` | Id、Username、PasswordHash、CreatedAt；索引 (Username, CreatedAt) | 密碼歷程（重複與到期判斷） |
 
-- 種子資料：權限（`users.read`、`groups.update` 等）、受保護的「系統管理員」群組（`Id = 1`）、第 9 項的預設管理員，以及一筆已逾期的初始密碼歷程（首次登入強制變更）。
+- 種子資料：權限（`users.read`、`groups.update` 等）、受保護的「系統管理員」群組（`Id = 1`）、第 9 項的預設管理員，以及一筆初始密碼歷程（建立日期為建立專案當日，首次登入不強制變更密碼）。
 - 第 23 項有業務功能時，另列出該功能的資料表與欄位。
 - EF Core 另會自動建立 `__EFMigrationsHistory`。
 
@@ -107,52 +114,68 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 ### 七、功能範圍
 22. 第一版基本功能 — 預設：登入／登出、忘記密碼、逾期變更密碼、使用者管理、群組與權限管理
 23. 其他業務功能：功能名稱與主要欄位（依規範產生 Controller／Service／DTO／Model 與前端功能資料夾）— 預設：`Project_Info.txt` 的 `業務功能`，留白為無
-24. 版面需求 — 預設：側邊選單 + 頂列的後台版面；主色、Logo 取自 `Project_Info.txt` 的 `主色`、`Logo`（Logo 填檔案路徑），留白用預設樣式
+24. 版面需求 — 側邊選單 + 頂列的後台版面（使用範本時沿用範本版面）；主色、Logo 取自 `Project_Info.txt` 的 `主色`、`Logo`（Logo 填檔案路徑），留白時：使用範本沿用範本樣式（主色 `#1e6fd9`、側邊選單顯示系統名稱文字），不使用範本則自行採用預設樣式
 
-## 3. 建立專案
+### 八、建立方式
+25. 是否使用範本 — 預設：`Project_Info.txt` 的 `使用範本`，留白為「是」（複製 `templates\project\`，程式與 UI 和範本一致）；「否」時依 `no-template.md` 重新產生
 
-燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問：
+## 3. 建立專案（使用範本）
 
-1. **後端**：`dotnet new webapi`，套件寫明確版本號（不用浮動版本）；依規範建立 `Controllers/`、`Services/`、`DTOs/`、`Models/`、`Data/`、`Exceptions/`、`Extensions/`。
-   - 資料表：依第 2 節「將建立的資料表」，加上第 23 項的業務資料表。
+第 25 項為「否」時跳過本節，改依 `no-template.md` 建立，完成後接第 4 節驗證。
 
-   - 種子（皆以 `HasData` 靜態種子，隨 Migration 建表寫入）：權限、受保護的「系統管理員」群組、預設管理員。
-     - 預設管理員：第 9、10 項的帳密，加入系統管理員群組；建立時以 BCrypt 產生雜湊，程式與 Migration 只存雜湊，不出現明文密碼。
-     - 同時寫入一筆 `_Pwd_log`（同一雜湊、`CreatedAt` 設為早於密碼有效天數的固定日期，如 `2000-01-01`），讓首次登入走逾期變更流程，且新密碼不得與初始密碼相同。
-   - 全域例外 Middleware、`BusinessException`、`ApiResponse`／`PagedResult`、`InvalidModelStateResponseFactory`（模型驗證失敗回 `ApiResponse`；JSON 解析失敗或缺少 Body 時只回「請求資料格式不正確」，不洩漏型別或路徑）。
-   - 失敗回應的 HTTP 狀態碼與 `ApiResponse`：JWT `OnChallenge`（呼叫 `HandleResponse()`）回 401、自訂 `IAuthorizationMiddlewareResultHandler` 回 403、速率限制 `OnRejected` 回 429、`/api/{**path}` 回 404（不落入 SPA fallback）；前端 Axios 於錯誤分支讀取 `message`，401 視為登入逾時。
-   - 安全設定：JWT 驗證（簽章、Issuer、Audience、期限）、預設 `[Authorize]`、安全標頭、移除 `Server` 標頭、`Cache-Control: no-store`、Swagger 僅限 Development、速率限制。
-   - 密碼設定統一由單一方法處理；郵件範本放 `Template/` 並於啟動時載入。
-   - 連線字串、JWT 金鑰、SMTP 密碼：以 AES-256 加密後寫入 `appsettings.json`（SMTP 密碼為空時不解密）。
-     - `AES256Key`（32 字元）、`AES256IV`（16 字元）以 `RandomNumberGenerator` 從英數字隨機產生，每個專案各自一組，寫在 `appsettings.json` 頂層。
-     - `Extensions/ConfigEncryption.cs`：使用 .NET 內建 `Aes`（CBC、PKCS7），加密值以 Base64 儲存；解密失敗或長度不符時拒絕啟動，錯誤訊息不含原始值。
-     - `Program.cs` 在註冊服務前解密，結果存入區域變數（連線字串直接傳給 `UseSqlServer`，JWT 金鑰以 `PostConfigure<JwtSettings>` 設定）；不寫回 `IConfiguration`，否則 appsettings 重新載入時會還原成加密值。
-     - 提供工具模式 `dotnet run -- encrypt "<明文>"`，讀取輸出目錄的 `appsettings.json` 並印出加密值，用來產生上述加密值，以及之後更換時使用。
-     - 連線字串取自 `DB_DefaultConnection.txt`、SMTP 密碼取自 `SendMail_Info.txt` 的明文，以本專案金鑰加密；不可沿用其他專案的加密值（金鑰不同會解密失敗、拒絕啟動），明文不得寫入專案任何檔案或回報內容。
-     - JWT 金鑰以 `RandomNumberGenerator` 產生至少 48 位元組。
-   - 不使用 `dotnet user-secrets`。
-   - `dotnet new webapi` 產生的範本檔（`WeatherForecast.cs`、`Controllers/WeatherForecastController.cs`、`backend.http`）先保留，於第 4 節統一刪除；`Program.cs`、`appsettings*.json` 直接以 Write 覆寫。未使用的範本套件（如 `Microsoft.AspNetCore.OpenApi`）以 `dotnet remove package` 移除。
-2. **前端**：Vite + Vue 3 + TypeScript，安裝 Pinia、Axios、Tailwind CSS v4，以 `package-lock.json` 鎖定版本；依規範建立 `src/views/[Feature]/` 結構、Axios interceptor（`handled` 標記）、登入狀態（檢查 `expiresAt`）、路由守衛。
-   - 以 `npm create vite@latest frontend -- --template vue-ts --no-interactive` 建立。`index.html`、`vite.config.ts`、`tsconfig.app.json`、`src/App.vue`、`src/main.ts`、`src/style.css` 直接以 Write 覆寫；其餘範本檔（`src/assets/`、`src/components/HelloWorld.vue`、`public/icons.svg`、`README.md`）先保留，於第 4 節統一刪除。
-   - 前端 `.env` 內容須維持純 ASCII（不加中文註解），否則 Windows PowerShell 5.1 讀取時會亂碼，發佈腳本讀不到 `VITE_APP_BASE`；說明寫在專案 CLAUDE.md。
-3. **部署檔**：依第 19～21 項產生 `web.config`、SPA `index.html` 的 `Cache-Control: no-cache` 設定與發佈腳本。
-   - 移除伺服器標頭：Kestrel 設定 `AddServerHeader = false`；IIS 於 `web.config` 以 `<requestFiltering removeServerHeader="true" />`（須 IIS 10 以上）與 `<customHeaders><remove name="X-Powered-By" /></customHeaders>` 移除 IIS 加上的標頭。
-   - SPA 的 `index.html`（含 fallback）回應 `Cache-Control: no-cache`；assets 檔名含 hash，可正常快取。
-   - 發佈腳本：複製 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\templates\publish.ps1` 至專案根目錄，目錄名稱與第 3 項不同時調整 `-FrontendDir`、`-BackendDir` 預設值；須維持 UTF-8 with BOM（以 `[IO.File]::WriteAllText(..., [Text.UTF8Encoding]::new($true))` 寫入）。
-   - 後端 `.csproj` 排除 `publish/**`（避免下次發佈時被當成內容檔再複製一層）。
-   - 部署子路徑（第 19 項）：前端 `.env` 設定 `VITE_APP_BASE`（以 `/` 開頭與結尾，納入版控）；`vite.config.ts` 只在建置時套用為 `base`（開發固定 `/`）；router `createWebHistory(import.meta.env.BASE_URL)`、Axios ``baseURL: `${import.meta.env.BASE_URL}api` ``；後端由 IIS 自動設定 `PathBase`，不需另外處理。
-   - 專案 CLAUDE.md 註明發佈流程使用 `/publish-project`。
-4. **專案 CLAUDE.md**：第一行以 `@D:/Jovi/Localhost/_ClaudeCode/_Claude_Standards/CLAUDE.md` 匯入通用規範，再記錄專案用途、目錄、啟動方式、專案特有設定與待辦。
-5. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`.env.local`）；**不 commit**，於完成回報提醒使用者自行 commit。
+燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問。以下 `<範本>` 指 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\new-project\templates`。
+
+範本已包含規範要求的所有基本功能與資安設定（JWT 驗證、預設 `[Authorize]`、權限查資料庫、全域例外處理、各狀態碼的 `ApiResponse`、安全標頭、速率限制、驗證碼、AES 加密設定與 `encrypt` 工具模式、單一密碼設定方法、郵件範本、前端 interceptor 與登入狀態、部署子路徑、`web.config`），不需另外撰寫。
+
+1. **複製範本**：
+   - `Copy-Item -LiteralPath "<範本>\project" -Destination "<專案目錄>" -Recurse`（目標目錄不存在時會一併建立；上層資料夾不存在時先以 `New-Item -ItemType Directory` 建立）。
+   - 發佈腳本另外複製：`Copy-Item -LiteralPath "D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\templates\publish.ps1" -Destination "<專案目錄>\publish.ps1"`（範本為 UTF-8 with BOM，複製即保留）。
+2. **產生金鑰與雜湊**：將 `<範本>\keygen` 以 `Copy-Item -Recurse` 複製到 scratchpad，執行 `dotnet run --project <scratchpad>\keygen\keygen.csproj -- "<第 10 項密碼>"`，取得 `AES256Key`、`AES256IV`、`JwtKey`（Base64，`TokenService` 以 Base64 解碼）、`AdminPasswordHash`。輸出含機密，只用於填入範本，不寫入回報。不可沿用其他專案的值。
+3. **替換佔位符**：以 Edit 工具將範本中的 `__名稱__` 換成實際值：
+
+   | 佔位符 | 值 | 所在檔案 |
+   | --- | --- | --- |
+   | `__PROJECT_NAME__` | 第 1 項 | `backend/appsettings.json`、`backend/Program.cs`、`frontend/.env`、`CLAUDE.md` |
+   | `__PROJECT_NAME_LOWER__` | 第 1 項轉小寫 | `frontend/package.json`、`frontend/package-lock.json`（兩處） |
+   | `__PROJECT_PURPOSE__` | 第 2 項 | `CLAUDE.md` |
+   | `__BACKEND_PORT__` | 5100～5999 中未被其他專案使用的埠號 | `backend/Properties/launchSettings.json`、`frontend/vite.config.ts`、`CLAUDE.md` |
+   | `__AES256_KEY__`、`__AES256_IV__` | keygen 輸出 | `backend/appsettings.json` |
+   | `__ENC_CONNECTION_STRING__`、`__ENC_JWT_KEY__`、`__ENC_SMTP_PASSWORD__` | 第 4 步產生的加密值 | `backend/appsettings.json` |
+   | `__FRONTEND_URL__` | 第 18 項（`正式網址` 有填時用正式網址，否則 `http://localhost/<專案名稱>`） | `backend/appsettings.json`、`CLAUDE.md` |
+   | `__SMTP_ENABLED__`、`__SMTP_HOST__`、`__SMTP_PORT__`、`__SMTP_USE_SSL__`、`__SMTP_SENDER_NAME__`、`__SMTP_SENDER_EMAIL__`、`__SMTP_USERNAME__` | 第 17 項（`SendMail_Info.txt` 不存在時 `Enabled` 為 `false`、其餘留空字串、Port `587`、UseSsl `true`） | `backend/appsettings.json` |
+   | `__SEED_YEAR__`、`__SEED_MONTH__`、`__SEED_DAY__` | 建立專案當日（數字，不補 0） | `backend/Data/SeedData.cs` |
+   | `__SEED_DATE__` | 建立專案當日（`yyyy-MM-dd`） | `CLAUDE.md` |
+   | `__ADMIN_USERNAME__`、`__ADMIN_EMAIL__`、`__ADMIN_DISPLAY_NAME__` | 第 9 項 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md` |
+   | `__ADMIN_PASSWORD_HASH__` | keygen 輸出的 `AdminPasswordHash` | `backend/Data/SeedData.cs` |
+   | `__DB_SERVER__`、`__DB_NAME__`、`__DB_AUTH__` | 第 6、7 項（`__DB_AUTH__` 為「SQL 帳密驗證」或「Windows 整合驗證」） | `CLAUDE.md` |
+   | `__DEPLOY_DESCRIPTION__` | 第 19 項：「IIS（需 IIS 10 以上與 ASP.NET Core Hosting Bundle）」或「Kestrel 獨立執行」 | `CLAUDE.md` |
+
+   - 加密值須先完成上表其餘替換（至少 `__AES256_KEY__`、`__AES256_IV__`）並 `dotnet build`，才能以工具模式產生，見第 4 步。
+   - 替換完成後以 Grep 搜尋 `__[A-Z0-9_]+__`（排除 `node_modules`），須為 0 筆。
+4. **加密機密**：`dotnet build <backend 絕對路徑>\backend.csproj` 後，以 `dotnet run --project <backend 絕對路徑>\backend.csproj --no-build -- encrypt "<明文>"` 逐一產生：
+   - 連線字串：`DB_DefaultConnection.txt` 的 `DefaultConnection`（`<專案名稱>` 替換為第 1 項）；未含 `TrustServerCertificate` 時加上 `TrustServerCertificate=True;`（SqlClient 預設加密連線，本機 SQL Server 為自簽憑證）。
+   - JWT 金鑰：keygen 輸出的 `JwtKey`。
+   - SMTP 密碼：`SendMail_Info.txt` 的 `Password`；檔案不存在時 `__ENC_SMTP_PASSWORD__` 換成空字串（為空時不解密）。
+   - 明文不得寫入專案任何檔案或回報內容。
+5. **主色與 Logo**（第 24 項，留白則略過）：
+   - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺。
+   - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（`alt` 為系統名稱），保留系統名稱文字。
+6. **業務功能**（第 23 項，留白則略過）：以範本的使用者管理（`Users`）為樣板，依規範新增：
+   - 後端：`Models/<Entity>/`、`AppDbContext` 的 `DbSet` 與欄位設定、`DTOs/<Feature>/`、`Services/<Feature>/`、`Controllers/<Feature>/`；權限加入 `Data/PermissionNames.cs`，並在 `Data/SeedData.cs` 的 `Permissions` 往後新增（Id 接續，不改動既有 Id；系統管理員群組自動擁有全部權限）。
+   - 前端：`src/views/<Feature>/`（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/<Feature>FormModal.vue`），版面、表格、Modal、按鈕樣式比照 `Users`；在 `src/router/index.ts` 加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）。
+   - 專案 CLAUDE.md 的種子說明更新權限筆數。
+7. **安裝前端套件**：`npm ci --prefix <frontend 絕對路徑>`（依範本的 `package-lock.json` 安裝，不升級版本）。
+8. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼。
+9. **git**：`git init <專案目錄>`（範本已含 `.gitignore`）；**不 commit**，於完成回報提醒使用者自行 commit。
 
 ## 4. 驗證
 
-- `dotnet build`、`npm run build` 皆須成功；第 8 項為是時執行 Migration。失敗時自行修正，2 次仍失敗為紅燈，停下回報錯誤並詢問。
+- 使用範本時：佔位符已全部替換（Grep `__[A-Z0-9_]+__` 為 0 筆）。
+- `dotnet build`、`npm run build` 皆須成功；第 8 項為是時執行 Migration。失敗時自行修正，2 次仍失敗為紅燈，停下回報錯誤並詢問。使用範本時，範本本身的問題（非佔位符或業務功能造成）修正後，於回報中提醒使用者同步更新範本。
 - 可啟動時實際啟動後端（背景執行），以 `curl -s http://localhost:<port>/...` 確認登入流程與回應標頭。**驗證只做不留下資料的請求**，建完的資料庫只含種子資料：
-  - 可測：回應標頭、`ApiResponse` 格式、JSON 格式錯誤與模型驗證、驗證碼錯誤（不計入錯誤次數）、401（無 Token、無效 Token）、`/api` 不存在路徑 404、連續送出驗證碼錯誤的登入直到 429、以環境變數 `Security__Login__CaptchaEnabled=false` 啟動後用預設管理員登入，確認回傳 `requirePasswordChange` 與變更憑證。
+  - 可測：回應標頭、`ApiResponse` 格式、JSON 格式錯誤與模型驗證、驗證碼錯誤（不計入錯誤次數）、401（無 Token、無效 Token）、`/api` 不存在路徑 404、錯誤 Content-Type 回 415 `ApiResponse`、連續送出驗證碼錯誤的登入直到 429、以命令列參數關閉驗證碼啟動（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`，`Program.cs` 須以 `WebApplication.CreateBuilder(args)` 讀取命令列設定）後用預設管理員登入，確認直接回傳 JWT 與 `expiresAt`（`requirePasswordChange` 為 `false`），並以該 Token 呼叫需登入的端點（如 `/api/auth/me`）。
   - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `_LoginErr_log`）、新增／編輯／刪除資料、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
   - 不以 `sqlcmd` 或其他方式異動資料庫資料；若不慎寫入，視為破壞性動作的紅燈，停下詢問。
-- 已執行發佈腳本時，以 `ASPNETCORE_ENVIRONMENT=Production` 啟動發佈結果，確認 `/swagger` 回 404、`index.html` 為 `Cache-Control: no-cache`；測試完畢即停止程式。
+- 已執行發佈腳本時，以 `dotnet <publish 絕對路徑>\backend.dll --environment Production --contentRoot <publish 絕對路徑> --urls http://localhost:<port>` 啟動發佈結果（須指定 `--contentRoot`，否則找不到 `appsettings.json` 與 `wwwroot`），確認 `/swagger` 與不存在的檔案路徑（如 `/missing.js`）回 404、`index.html` 與 SPA fallback 為 `Cache-Control: no-cache`；測試完畢即停止程式。測試指令勿 `cd` 進 `publish/`，否則該目錄被占用，下次發佈無法清除。
 - 執行 `owasp-check` skill 檢查整個專案，將結果附在完成回報中（發現問題直接修正，不另外詢問；涉及第 2 節紅燈條件時才詢問）。
-- 驗證全部完成後，統一刪除第 3 節保留的範本檔，**以一個指令列出所有要刪除的路徑**（只詢問一次），刪除前確認清單只含範本產生的檔案；刪除後再執行一次 `dotnet build` 與 `npm run build` 確認仍成功。
-- 回報時明確列出：已完成項目、未執行的步驟與原因、預設管理員帳號（提醒首次登入須變更密碼），產生加密值的指令，以及「尚未 commit，請確認後自行 commit」。
+- 回報時明確列出：已完成項目、未執行的步驟與原因、預設管理員帳號，產生加密值的指令，以及「尚未 commit，請確認後自行 commit」。
