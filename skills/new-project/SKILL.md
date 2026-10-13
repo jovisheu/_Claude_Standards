@@ -3,6 +3,7 @@ name: new-project
 description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專案。在使用者要求建立新專案、初始化專案骨架時使用；設定取自 _Project_Info 與預設值，全部綠燈時直接建立不詢問，只有紅燈項目才詢問。
 ---
 
+
 # 建立新專案
 
 規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）。先完整讀過兩個檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式。
