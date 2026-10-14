@@ -112,7 +112,11 @@
 * 撰寫原生 SQL（SSMS、報表、`FromSql`）時使用資料表名稱（如 `BasicUser`），不是 API 路徑或功能名稱。
 * 權限一律指派給群組，不直接指派給使用者。
 * 種子資料：「系統管理員」群組擁有全部權限且受保護；「訪客」群組擁有全部檢視（`.read`）權限；預設管理員（系統管理員群組）與預設一般使用者（訪客群組）以靜態種子於建表時建立（帳密見 `new-project` skill；一般使用者的初始密碼為已知值，正式上線前須停用或變更）。
-* 所有資料表與欄位（含業務功能）一律在 `AppDbContext` 以 `HasComment` 加上繁體中文描述（資料表為 `ToTable("名稱", t => t.HasComment("描述"))`），隨 Migration 寫入 SQL Server 的 `MS_Description`；描述只說明欄位本身的意義（自動編號主鍵為「流水號」、外鍵註明指向的資料表欄位，如「使用者編號（BasicUser.Id）」），不寫特定資料的值或程式約定。`__EFMigrationsHistory` 由 EF Core 管理，不加描述。
+* 建立資料表或新增欄位時，**必須同時**建立資料表描述與欄位描述，不得事後補上；含業務功能、既有專案後續新增的資料表與欄位。
+  * EF Core：一律在 `AppDbContext` 以 `HasComment` 加上繁體中文描述（資料表為 `ToTable("名稱", t => t.HasComment("描述"))`），隨 Migration 寫入 SQL Server 的 `MS_Description`。
+  * 原生 SQL 建表（SSMS、部署腳本）：同一腳本內以 `sp_addextendedproperty` 寫入 `MS_Description`（資料表與每個欄位）。
+  * 建表或加欄位後，以唯讀查詢 `sys.extended_properties` 確認每張資料表與每個欄位都有 `MS_Description`。
+  * 描述只說明欄位本身的意義（自動編號主鍵為「流水號」、外鍵註明指向的資料表欄位，如「使用者編號（BasicUser.Id）」），不寫特定資料的值或程式約定。`__EFMigrationsHistory` 由 EF Core 管理，不加描述。
 * SQL Server 上可為 null 的欄位不建唯一索引，改建一般索引：EF Core 會建成篩選索引，以 sqlcmd 等預設 `QUOTED_IDENTIFIER OFF` 的工具更新該表時會失敗。
 
 **Service 層寫法：**

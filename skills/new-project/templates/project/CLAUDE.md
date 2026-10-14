@@ -38,6 +38,7 @@ npm run dev --prefix frontend
 - MSSQL `__DB_SERVER__` / `__DB_NAME__`，__DB_AUTH__。
 - 新增 Migration：`dotnet ef migrations add <名稱> --project backend --output-dir Data/Migrations`
 - 套用：`dotnet ef database update --project backend`
+- 建立資料表或新增欄位時，須同時在 `AppDbContext` 以 `HasComment` 加上資料表描述與每個欄位的描述（原生 SQL 建表則以 `sp_addextendedproperty` 寫入 `MS_Description`），規則見 `_Claude_Standards/CLAUDE.md`。
 - 基本資料表：`BasicUser`、`BasicGroup`、`BasicPermission`、`BasicUserGroup`、`BasicGroupPermission`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicExceptionlog`、`BasicSyslog`（資料表、類別、`DbSet` 同名；API 與前端路由為複數，如 `/api/basicusers`，命名規則見 `_Claude_Standards/CLAUDE.md`）。
 - 種子：權限 8 筆（`basicuser.*`、`basicgroup.*`）、受保護的「系統管理員」群組（Id = 1）、「訪客」群組（Id = 2，全部 `*.read`）、預設管理員（Id = 1）、預設一般使用者（Id = 2，訪客群組）、初始密碼歷程（__SEED_DATE__，首次登入不強制變更）。
 
