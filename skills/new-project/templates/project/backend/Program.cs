@@ -3,12 +3,14 @@ using backend.Data;
 using backend.Extensions;
 using backend.Services.Auth;
 using backend.Services.Captcha;
-using backend.Services.Groups;
+using backend.Services.BasicExceptionlogs;
+using backend.Services.BasicGroups;
 using backend.Services.Mail;
 using backend.Services.Password;
-using backend.Services.Permissions;
+using backend.Services.BasicPermissions;
+using backend.Services.BasicSyslogs;
 using backend.Services.Token;
-using backend.Services.Users;
+using backend.Services.BasicUsers;
 using backend.Settings;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
@@ -50,26 +52,36 @@ builder.Services.PostConfigure<JwtSettings>(s => s.Key = jwtKey);
 builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection(SecuritySettings.SectionName));
 builder.Services.Configure<AppSettings>(builder.Configuration.GetSection(AppSettings.SectionName));
 builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
+builder.Services.Configure<BasicExceptionlogSettings>(builder.Configuration.GetSection(BasicExceptionlogSettings.SectionName));
+builder.Services.Configure<BasicSyslogSettings>(builder.Configuration.GetSection(BasicSyslogSettings.SectionName));
 builder.Services.PostConfigure<SmtpSettings>(s => s.Password = smtpPassword);
 
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 var securitySettings = builder.Configuration.GetSection(SecuritySettings.SectionName).Get<SecuritySettings>() ?? new SecuritySettings();
 
-builder.Services.AddDbContext<AppDbContext>(options => options.UseSqlServer(connectionString));
+// 系統異動歷程：每個 DbContext 掛上一個攔截器，自動記錄新增／修改／刪除
+builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<BasicSyslogInterceptor>();
+builder.Services.AddDbContext<AppDbContext>((sp, options) => options
+    .UseSqlServer(connectionString)
+    .AddInterceptors(sp.GetRequiredService<BasicSyslogInterceptor>()));
 builder.Services.AddMemoryCache();
 
 // 服務
-builder.Services.AddScoped<IPermissionService, PermissionService>();
+builder.Services.AddScoped<IBasicPermissionsService, BasicPermissionsService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IUsersService, UsersService>();
-builder.Services.AddScoped<IGroupsService, GroupsService>();
+builder.Services.AddScoped<IBasicUsersService, BasicUsersService>();
+builder.Services.AddScoped<IBasicGroupsService, BasicGroupsService>();
 builder.Services.AddSingleton<ICaptchaService, CaptchaService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<MailTemplateStore>();
 builder.Services.AddSingleton<MailQueue>();
 builder.Services.AddSingleton<IMailService, MailService>();
 builder.Services.AddHostedService<MailBackgroundService>();
+builder.Services.AddSingleton<IBasicExceptionlogsService, BasicExceptionlogsService>();
+builder.Services.AddHostedService<BasicExceptionlogArchiveService>();
+builder.Services.AddSingleton<IBasicSyslogsService, BasicSyslogsService>();
 
 // Controller 與模型驗證
 builder.Services.AddControllers(options =>
@@ -122,7 +134,7 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             {
                 var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                if (!int.TryParse(sub, out var userId) || !await db.Users.AnyAsync(u => u.Id == userId && u.IsActive))
+                if (!int.TryParse(sub, out var basicUserId) || !await db.BasicUser.AnyAsync(u => u.Id == basicUserId && u.IsActive))
                 {
                     context.Fail("使用者不存在或已停用");
                 }
@@ -139,12 +151,12 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 builder.Services.AddAuthorization(options =>
 {
     options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
-    foreach (var permission in PermissionNames.All)
+    foreach (var basicPermission in BasicPermissionNames.All)
     {
-        options.AddPolicy(permission, policy => policy.RequireAuthenticatedUser().AddRequirements(new PermissionRequirement(permission)));
+        options.AddPolicy(basicPermission, policy => policy.RequireAuthenticatedUser().AddRequirements(new BasicPermissionRequirement(basicPermission)));
     }
 });
-builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
+builder.Services.AddScoped<IAuthorizationHandler, BasicPermissionAuthorizationHandler>();
 builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
 
 // 速率限制（每 IP）

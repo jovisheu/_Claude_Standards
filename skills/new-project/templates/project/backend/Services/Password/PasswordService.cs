@@ -12,15 +12,15 @@ public class PasswordService(AppDbContext db, IOptions<SecuritySettings> securit
     private const int WorkFactor = 12;
     private readonly PasswordSettings _settings = securityOptions.Value.Password;
 
-    public async Task SetPasswordAsync(User user, string newPassword)
+    public async Task SetPasswordAsync(BasicUser basicUser, string newPassword)
     {
         ValidateRules(newPassword);
 
         // 不得與前 N 次密碼相同
-        if (_settings.HistoryCount > 0 && !string.IsNullOrEmpty(user.Username))
+        if (_settings.HistoryCount > 0 && !string.IsNullOrEmpty(basicUser.Username))
         {
-            var recentHashes = await db.PwdLogs
-                .Where(p => p.Username == user.Username)
+            var recentHashes = await db.BasicPwdlog
+                .Where(p => p.Username == basicUser.Username)
                 .OrderByDescending(p => p.CreatedAt)
                 .ThenByDescending(p => p.Id)
                 .Take(_settings.HistoryCount)
@@ -36,14 +36,14 @@ public class PasswordService(AppDbContext db, IOptions<SecuritySettings> securit
         var now = DateTime.Now;
         var hash = BCrypt.Net.BCrypt.HashPassword(newPassword, WorkFactor);
 
-        user.PasswordHash = hash;
-        user.PasswordResetTokenHash = null;
-        user.PasswordResetExpiresAt = null;
-        if (user.Id != 0) user.UpdatedAt = now;
+        basicUser.PasswordHash = hash;
+        basicUser.PasswordResetTokenHash = null;
+        basicUser.PasswordResetExpiresAt = null;
+        if (basicUser.Id != 0) basicUser.UpdatedAt = now;
 
-        db.PwdLogs.Add(new PwdLog { Username = user.Username, PasswordHash = hash, CreatedAt = now });
+        db.BasicPwdlog.Add(new BasicPwdlog { Username = basicUser.Username, PasswordHash = hash, CreatedAt = now });
 
-        logger.LogInformation("密碼已設定：{Username}", user.Username);
+        logger.LogInformation("密碼已設定：{Username}", basicUser.Username);
     }
 
     public bool Verify(string password, string passwordHash)
@@ -60,7 +60,7 @@ public class PasswordService(AppDbContext db, IOptions<SecuritySettings> securit
 
     public async Task<bool> IsExpiredAsync(string username)
     {
-        var lastChanged = await db.PwdLogs
+        var lastChanged = await db.BasicPwdlog
             .Where(p => p.Username == username)
             .OrderByDescending(p => p.CreatedAt)
             .Select(p => (DateTime?)p.CreatedAt)

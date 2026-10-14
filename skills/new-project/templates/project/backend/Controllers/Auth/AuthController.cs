@@ -66,6 +66,6 @@ public class AuthController(IAuthService authService, ICaptchaService captchaSer
 
     /// <summary>目前登入者資訊與權限（即時取自資料庫）</summary>
     [HttpGet("me")]
-    public async Task<ApiResponse<CurrentUserResult>> Me()
-        => ApiResponse<CurrentUserResult>.Ok(await authService.GetCurrentUserAsync(User.GetUserId()));
+    public async Task<ApiResponse<CurrentBasicUserResult>> Me()
+        => ApiResponse<CurrentBasicUserResult>.Ok(await authService.GetCurrentBasicUserAsync(User.GetBasicUserId()));
 }

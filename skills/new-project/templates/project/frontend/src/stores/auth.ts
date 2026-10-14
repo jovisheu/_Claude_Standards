@@ -1,13 +1,13 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
-import type { CurrentUser, LoginResult } from '@/views/Login/types'
+import type { CurrentBasicUser, LoginResult } from '@/views/Login/types'
 
 const STORAGE_KEY = `${import.meta.env.VITE_APP_TITLE}.auth`
 
 interface StoredAuth {
   token: string
   expiresAt: string
-  user: CurrentUser | null
+  basicUser: CurrentBasicUser | null
 }
 
 function load(): StoredAuth | null {
@@ -23,10 +23,10 @@ export const useAuthStore = defineStore('auth', () => {
   const stored = load()
   const token = ref<string | null>(stored?.token ?? null)
   const expiresAt = ref<string | null>(stored?.expiresAt ?? null)
-  const user = ref<CurrentUser | null>(stored?.user ?? null)
+  const basicUser = ref<CurrentBasicUser | null>(stored?.basicUser ?? null)
 
   /** 本次開啟頁面後是否已向後端取得最新權限 */
-  const userRefreshed = ref(false)
+  const basicUserRefreshed = ref(false)
 
   /** 逾期變更密碼憑證（只存於記憶體，不寫入 localStorage 或網址） */
   const changeToken = ref<string | null>(null)
@@ -43,7 +43,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   function persist() {
     if (token.value && expiresAt.value) {
-      const data: StoredAuth = { token: token.value, expiresAt: expiresAt.value, user: user.value }
+      const data: StoredAuth = { token: token.value, expiresAt: expiresAt.value, basicUser: basicUser.value }
       localStorage.setItem(STORAGE_KEY, JSON.stringify(data))
     } else {
       localStorage.removeItem(STORAGE_KEY)
@@ -53,15 +53,15 @@ export const useAuthStore = defineStore('auth', () => {
   function setLogin(result: LoginResult) {
     token.value = result.token
     expiresAt.value = result.expiresAt
-    user.value = result.user
-    userRefreshed.value = true
+    basicUser.value = result.basicUser
+    basicUserRefreshed.value = true
     changeToken.value = null
     persist()
   }
 
-  function setUser(value: CurrentUser) {
-    user.value = value
-    userRefreshed.value = true
+  function setBasicUser(value: CurrentBasicUser) {
+    basicUser.value = value
+    basicUserRefreshed.value = true
     persist()
   }
 
@@ -72,28 +72,28 @@ export const useAuthStore = defineStore('auth', () => {
   function clear() {
     token.value = null
     expiresAt.value = null
-    user.value = null
-    userRefreshed.value = false
+    basicUser.value = null
+    basicUserRefreshed.value = false
     changeToken.value = null
     persist()
   }
 
-  function hasPermission(permission: string) {
-    return user.value?.permissions.includes(permission) ?? false
+  function hasBasicPermission(basicPermission: string) {
+    return basicUser.value?.basicPermissionNames.includes(basicPermission) ?? false
   }
 
   return {
     token,
     expiresAt,
-    user,
-    userRefreshed,
+    basicUser,
+    basicUserRefreshed,
     changeToken,
     isLoggedIn,
     isExpired,
     setLogin,
-    setUser,
+    setBasicUser,
     setChangeToken,
     clear,
-    hasPermission,
+    hasBasicPermission,
   }
 })

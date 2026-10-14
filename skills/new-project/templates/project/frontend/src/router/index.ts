@@ -2,15 +2,15 @@ import { createRouter, createWebHistory } from 'vue-router'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
-import { getCurrentUser } from '@/views/Login/api'
+import { getCurrentBasicUser } from '@/views/Login/api'
+import basicGroupsRoutes from '@/views/BasicGroups/routes'
+import basicUsersRoutes from '@/views/BasicUsers/routes'
 import changePasswordRoutes from '@/views/ChangePassword/routes'
 import forgotPasswordRoutes from '@/views/ForgotPassword/routes'
-import groupsRoutes from '@/views/Groups/routes'
 import homeRoutes from '@/views/Home/routes'
 import loginRoutes from '@/views/Login/routes'
 import notFoundRoutes from '@/views/NotFound/routes'
 import resetPasswordRoutes from '@/views/ResetPassword/routes'
-import usersRoutes from '@/views/Users/routes'
 
 declare module 'vue-router' {
   interface RouteMeta {
@@ -19,7 +19,7 @@ declare module 'vue-router' {
     /** 頁面標題 */
     title?: string
     /** 瀏覽所需權限 */
-    permission?: string
+    basicPermission?: string
   }
 }
 
@@ -33,7 +33,7 @@ const router = createRouter({
     {
       path: '/',
       component: AdminLayout,
-      children: [...homeRoutes, ...usersRoutes, ...groupsRoutes],
+      children: [...homeRoutes, ...basicUsersRoutes, ...basicGroupsRoutes],
     },
     ...notFoundRoutes,
   ],
@@ -59,16 +59,16 @@ router.beforeEach(async (to) => {
   }
 
   // 每次開啟頁面後向後端取得一次最新權限
-  if (!auth.userRefreshed) {
+  if (!auth.basicUserRefreshed) {
     try {
-      auth.setUser(await getCurrentUser())
+      auth.setBasicUser(await getCurrentBasicUser())
     } catch {
       // 401 已由 interceptor 處理並導向登入頁
       return auth.isLoggedIn ? false : { name: 'login' }
     }
   }
 
-  if (to.meta.permission && !auth.hasPermission(to.meta.permission)) {
+  if (to.meta.basicPermission && !auth.hasBasicPermission(to.meta.basicPermission)) {
     await message.error('權限不足，無法瀏覽此頁面')
     return { name: 'home' }
   }

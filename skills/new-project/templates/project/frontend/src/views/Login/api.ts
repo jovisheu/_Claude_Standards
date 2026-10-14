@@ -1,6 +1,6 @@
 import http from '@/api/http'
 import type { ApiResponse } from '@/types/api'
-import type { AuthOptions, Captcha, CurrentUser, LoginRequest, LoginResult } from './types'
+import type { AuthOptions, Captcha, CurrentBasicUser, LoginRequest, LoginResult } from './types'
 
 export async function getAuthOptions() {
   const { data } = await http.get<ApiResponse<AuthOptions>>('/auth/options')
@@ -17,7 +17,7 @@ export async function login(request: LoginRequest) {
   return data.datas!
 }
 
-export async function getCurrentUser() {
-  const { data } = await http.get<ApiResponse<CurrentUser>>('/auth/me')
+export async function getCurrentBasicUser() {
+  const { data } = await http.get<ApiResponse<CurrentBasicUser>>('/auth/me')
   return data.datas!
 }

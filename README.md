@@ -38,6 +38,6 @@
 
 ## 目前共用 Skill
 
-* `new-project`：預設複製新專案範本並替換佔位符建立新專案；`使用範本` 填「否」時依規範重新產生。設定取自 `_Project_Info/` 與預設值，採紅綠燈判斷：全部綠燈直接建立不詢問，只有紅燈項目（環境缺漏、目錄不為空、資料庫有既有資料表、建置失敗等，見 Skill 第 2 節）才詢問；完成後不 commit，只提醒。
-* `publish-project`：發佈專案並整理部署檢查清單（只在使用者明確要求時執行）。
+* `new-project`：預設複製新專案範本並替換佔位符建立新專案；`使用範本` 填「否」時依規範重新產生。設定取自 `_Project_Info/` 與預設值，採紅綠燈判斷：全部綠燈直接建立不詢問，只有紅燈項目（環境缺漏、目錄不為空、資料庫有既有資料表、建置失敗等，見 Skill 第 2 節）才詢問；驗證與 `owasp-check` 後依 `publish-project` 流程發佈一次並測試發佈結果（略過 commit 檢查）；完成後不 commit，只提醒。
+* `publish-project`：發佈專案並整理部署檢查清單（只在使用者明確要求時執行；設有 `disable-model-invocation`，`new-project` 以讀取其 SKILL.md 的方式沿用流程）。
 * `owasp-check`：依通用規範的資安規範與 `references/auth-baseline.md` 檢查專案。

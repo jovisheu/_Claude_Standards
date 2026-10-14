@@ -7,7 +7,7 @@ using backend.Models;
 using backend.Services.Captcha;
 using backend.Services.Mail;
 using backend.Services.Password;
-using backend.Services.Permissions;
+using backend.Services.BasicPermissions;
 using backend.Services.Token;
 using backend.Settings;
 using Microsoft.EntityFrameworkCore;
@@ -21,7 +21,7 @@ public class AuthService(
     IPasswordService passwordService,
     ICaptchaService captchaService,
     ITokenService tokenService,
-    IPermissionService permissionService,
+    IBasicPermissionsService basicPermissionsService,
     IMailService mailService,
     IMemoryCache cache,
     IOptions<SecuritySettings> securityOptions,
@@ -65,61 +65,61 @@ public class AuthService(
             throw new BusinessException($"登入失敗次數過多，請於 {minutes} 分鐘後再試");
         }
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username);
-        var passwordValid = passwordService.Verify(request.Password, user?.PasswordHash ?? DummyHash);
-        if (user == null || !passwordValid)
+        var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Username == username);
+        var passwordValid = passwordService.Verify(request.Password, basicUser?.PasswordHash ?? DummyHash);
+        if (basicUser == null || !passwordValid)
         {
             // 帳號不存在也記錄
-            db.LoginErrLogs.Add(new LoginErrLog { Username = username, CreatedAt = now });
+            db.BasicLoginErrlog.Add(new BasicLoginErrlog { Username = username, CreatedAt = now });
             await db.SaveChangesAsync();
             logger.LogWarning("登入失敗（帳號或密碼錯誤）：{Username}", username);
             throw new BusinessException(InvalidCredentialMessage);
         }
 
-        if (!user.IsActive)
+        if (!basicUser.IsActive)
         {
-            logger.LogWarning("登入失敗（帳號已停用）：{UserId}", user.Id);
+            logger.LogWarning("登入失敗（帳號已停用）：{BasicUserId}", basicUser.Id);
             throw new BusinessException("帳號已停用，請聯繫管理員");
         }
 
         // 密碼逾期時不發 JWT，改發一次性、限時的變更憑證
-        if (await passwordService.IsExpiredAsync(user.Username))
+        if (await passwordService.IsExpiredAsync(basicUser.Username))
         {
             var changeToken = CreateRandomToken();
-            cache.Set(ChangeTokenCachePrefix + HashToken(changeToken), user.Id,
+            cache.Set(ChangeTokenCachePrefix + HashToken(changeToken), basicUser.Id,
                 TimeSpan.FromMinutes(_security.Password.ChangeTokenExpireMinutes));
-            logger.LogInformation("密碼已逾期，要求變更：{UserId}", user.Id);
+            logger.LogInformation("密碼已逾期，要求變更：{BasicUserId}", basicUser.Id);
             return new LoginResult { RequirePasswordChange = true, ChangeToken = changeToken };
         }
 
-        var (token, expiresAt) = tokenService.CreateAccessToken(user);
-        logger.LogInformation("登入成功：{UserId}", user.Id);
+        var (token, expiresAt) = tokenService.CreateAccessToken(basicUser);
+        logger.LogInformation("登入成功：{BasicUserId}", basicUser.Id);
 
         return new LoginResult
         {
             Token = token,
             ExpiresAt = expiresAt,
-            User = await GetCurrentUserAsync(user.Id)
+            BasicUser = await GetCurrentBasicUserAsync(basicUser.Id)
         };
     }
 
     public async Task ChangeExpiredPasswordAsync(ChangeExpiredPasswordRequest request)
     {
         var cacheKey = ChangeTokenCachePrefix + HashToken(request.ChangeToken);
-        if (!cache.TryGetValue(cacheKey, out int userId))
+        if (!cache.TryGetValue(cacheKey, out int basicUserId))
         {
             throw new BusinessException("變更憑證無效或已過期，請重新登入");
         }
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Id == userId && u.IsActive)
+        var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Id == basicUserId && u.IsActive)
             ?? throw new BusinessException("變更憑證無效或已過期，請重新登入");
 
         // 新密碼不符規則時憑證不消耗
-        await passwordService.SetPasswordAsync(user, request.NewPassword);
+        await passwordService.SetPasswordAsync(basicUser, request.NewPassword);
         await db.SaveChangesAsync();
 
         cache.Remove(cacheKey);
-        logger.LogInformation("逾期密碼已變更：{UserId}", user.Id);
+        logger.LogInformation("逾期密碼已變更：{BasicUserId}", basicUser.Id);
     }
 
     public async Task ForgotPasswordAsync(ForgotPasswordRequest request)
@@ -131,36 +131,36 @@ public class AuthService(
         var now = DateTime.Now;
         var settings = _security.PasswordReset;
 
-        var user = await db.Users.FirstOrDefaultAsync(u => u.Username == username && u.Email == email && u.IsActive);
+        var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Username == username && u.Email == email && u.IsActive);
 
         // 不論帳號與 Email 是否相符都回相同訊息；申請後不變更或停用原密碼
-        if (user == null)
+        if (basicUser == null)
         {
             logger.LogInformation("忘記密碼申請（帳號與 Email 不符）");
             return;
         }
 
         // 限制同帳號申請頻率
-        if (user.PasswordResetExpiresAt != null)
+        if (basicUser.PasswordResetExpiresAt != null)
         {
-            var lastRequestedAt = user.PasswordResetExpiresAt.Value.AddMinutes(-settings.TokenExpireMinutes);
+            var lastRequestedAt = basicUser.PasswordResetExpiresAt.Value.AddMinutes(-settings.TokenExpireMinutes);
             if (lastRequestedAt.AddMinutes(settings.RequestIntervalMinutes) > now)
             {
-                logger.LogInformation("忘記密碼申請過於頻繁，略過：{UserId}", user.Id);
+                logger.LogInformation("忘記密碼申請過於頻繁，略過：{BasicUserId}", basicUser.Id);
                 return;
             }
         }
 
         // 重新申請即覆蓋，舊連結隨即失效；資料庫只存雜湊
         var token = CreateRandomToken();
-        user.PasswordResetTokenHash = HashToken(token);
-        user.PasswordResetExpiresAt = now.AddMinutes(settings.TokenExpireMinutes);
+        basicUser.PasswordResetTokenHash = HashToken(token);
+        basicUser.PasswordResetExpiresAt = now.AddMinutes(settings.TokenExpireMinutes);
         await db.SaveChangesAsync();
 
         // 連結網址取自設定檔，不以請求的 Host 標頭組成
         var resetLink = $"{_app.FrontendUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
-        mailService.QueueResetPasswordMail(user.Email, user.DisplayName, resetLink, settings.TokenExpireMinutes);
-        logger.LogInformation("已排入重設密碼郵件：{UserId}", user.Id);
+        mailService.QueueResetPasswordMail(basicUser.Email, basicUser.DisplayName, resetLink, settings.TokenExpireMinutes);
+        logger.LogInformation("已排入重設密碼郵件：{BasicUserId}", basicUser.Id);
     }
 
     public async Task ResetPasswordAsync(ResetPasswordRequest request)
@@ -168,29 +168,29 @@ public class AuthService(
         var tokenHash = HashToken(request.Token);
         var now = DateTime.Now;
 
-        var user = await db.Users.FirstOrDefaultAsync(u =>
+        var basicUser = await db.BasicUser.FirstOrDefaultAsync(u =>
             u.PasswordResetTokenHash == tokenHash && u.PasswordResetExpiresAt > now && u.IsActive)
             ?? throw new BusinessException("重設連結無效或已過期，請重新申請");
 
         // 新密碼不符規則時連結不消耗；成功後由 SetPasswordAsync 作廢連結
-        await passwordService.SetPasswordAsync(user, request.NewPassword);
+        await passwordService.SetPasswordAsync(basicUser, request.NewPassword);
         await db.SaveChangesAsync();
-        logger.LogInformation("已透過重設連結變更密碼：{UserId}", user.Id);
+        logger.LogInformation("已透過重設連結變更密碼：{BasicUserId}", basicUser.Id);
     }
 
-    public async Task<CurrentUserResult> GetCurrentUserAsync(int userId)
+    public async Task<CurrentBasicUserResult> GetCurrentBasicUserAsync(int basicUserId)
     {
-        var user = await db.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == userId && u.IsActive)
+        var basicUser = await db.BasicUser.AsNoTracking().FirstOrDefaultAsync(u => u.Id == basicUserId && u.IsActive)
             ?? throw new BusinessException("尚未登入或登入已逾時，請重新登入", StatusCodes.Status401Unauthorized);
 
-        var permissions = await permissionService.GetUserPermissionsAsync(userId);
-        return new CurrentUserResult
+        var basicPermissions = await basicPermissionsService.GetBasicUserPermissionsAsync(basicUserId);
+        return new CurrentBasicUserResult
         {
-            Id = user.Id,
-            Username = user.Username,
-            DisplayName = user.DisplayName,
-            Email = user.Email,
-            Permissions = permissions.OrderBy(p => p).ToList()
+            Id = basicUser.Id,
+            Username = basicUser.Username,
+            DisplayName = basicUser.DisplayName,
+            Email = basicUser.Email,
+            BasicPermissionNames = basicPermissions.OrderBy(p => p).ToList()
         };
     }
 
@@ -211,7 +211,7 @@ public class AuthService(
         var login = _security.Login;
         var since = now.AddMinutes(-(login.FailedWindowMinutes + login.LockoutMinutes));
 
-        var failures = await db.LoginErrLogs
+        var failures = await db.BasicLoginErrlog
             .Where(l => l.Username == username && l.CreatedAt >= since)
             .OrderByDescending(l => l.CreatedAt)
             .Select(l => l.CreatedAt)

@@ -31,7 +31,7 @@
    * 正式環境不得啟用開發者例外頁、Swagger 等除錯功能（Swagger 僅限 Development 註冊與開放）。
    * 須加上安全標頭（`X-Content-Type-Options`、`X-Frame-Options`、CSP 等），且不回傳 `Server` 等揭露伺服器資訊的標頭。
    * API 回應含個資或 Token 時須加 `Cache-Control: no-store`，不可被瀏覽器或代理伺服器快取。
-   * 不得保留範例金鑰；預設管理員首次登入不強制變更密碼（種子的密碼歷程設為建立專案當日，依密碼有效天數正常到期）。
+   * 不得保留範例金鑰；預設管理員與預設一般使用者首次登入不強制變更密碼（種子的密碼歷程設為建立專案當日，依密碼有效天數正常到期）。
    * 安全相關參數（錯誤次數、鎖定時間、密碼歷程次數、密碼有效天數、連結時效等）一律放在 `appsettings.json`，不寫死在程式中；前端提示的數值須由後端提供，不在前端寫死。
 3. **軟體供應鏈失效 (Software Supply Chain Failures)**:
 
@@ -70,11 +70,20 @@
 
    * 登入失敗、密碼變更、未處理例外、郵件寄送失敗等安全事件須留存紀錄。
    * Log 嚴禁寫入密碼、Token、重設連結、連線字串等機密，也不記錄郵件收件人與內文等個資。
+   * 後端錯誤（全域 Middleware 擷取的未處理例外、背景作業失敗）除寫入 `ILogger` 外，一律寫入 `BasicExceptionlog`：例外類別、MethodName（Controller 與方法名稱，如 `BasicUsersController.Create`）、錯誤訊息、StackTrace、登入者帳號（未登入或背景作業為 null）、時間；`BusinessException` 不記錄。
+     * 統一呼叫 `IBasicExceptionlogsService.WriteAsync`：另建 DbContext 寫入（不沿用請求中可能含失敗變更的 DbContext），寫入失敗只寫 `ILogger`、不再丟出例外；例外訊息可能含個資時（如郵件寄送）以參數取代訊息。
+     * 保留天數為 `appsettings.json` 的 `BasicExceptionlog:RetentionDays`（預設 30）。背景服務於啟動時與之後每天一次，將 `CreatedAt` 早於「今天 - 保留天數」的紀錄轉存為 `網站目錄\Logs\Exception\YYYY\MM\DD\{MethodName}.txt`（日期為錯誤發生日，同檔附加），寫檔成功才刪除資料庫紀錄；MethodName 作為檔名前須移除不合法字元。
+   * 後端新增、修改、刪除資料（管理功能、業務功能、逾期變更與重設密碼）一律寫入系統異動歷程 `BasicSyslog`：類別（`C`／`U`／`D`）、MethodName、異動前資料（JSON 陣列）、異動後資料（JSON 陣列）、登入者帳號（未登入為 null）、時間。
+     * 由 EF Core 的 `SaveChangesInterceptor`（`Data/BasicSyslogInterceptor.cs`）自動擷取，新功能不需另外撰寫；異動須使用 `SaveChangesAsync`（同步 `SaveChanges` 遇到需記錄的異動會丟出例外），歷程與業務資料在同一交易，歷程寫入失敗時業務資料一併還原。
+     * 一次存檔一筆歷程：全部為新增記 `C`、全部為刪除記 `D`，其餘記 `U`；異動前後資料格式為 `[{ "Table": 資料表, "Data": { 欄位: 值 } }]`，含關聯表的異動，時間格式 `yyyy-MM-dd HH:mm:ss.fff`。
+     * 不記錄系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`）；機密欄位（密碼雜湊、token）不得寫入，列於攔截器的 `IgnoredProperties`，新增含機密欄位的資料表時須加入；只異動機密欄位時（如申請忘記密碼）不記錄。
+     * 保留天數為 `appsettings.json` 的 `BasicSyslog:RetentionDays`（預設 30）。寫入歷程前先檢查是否有 `CreatedAt` 早於「今天 - 保留天數」的紀錄，有則轉存為 `網站目錄\Logs\Syslog\YYYY\MM\DD\{MethodName}.txt`（日期為異動發生日，同檔附加），寫檔成功才刪除資料庫紀錄；同一天確認過即以記憶體標記略過，同一時間只允許一個轉存。轉存失敗寫入 `BasicExceptionlog`、10 分鐘後再試，不影響使用者的異動。
+     * `Logs\` 位於網站目錄、不在 `wwwroot` 下（不會被下載）；IIS 應用程式集區帳號須有寫入權限，部署清空目錄時須保留。
 10. **例外狀況處理不當 (Mishandling of Exceptional Conditions)**:
 
     * 伺服器內部 Exception 嚴禁將 StackTrace 或原始系統錯誤傳給前端。
     * 所有例外必須經由全域 Middleware 擷取，回傳標準 `ApiResponse` 格式（如：`Status: false`, `Message: "系統發生異常，請聯繫管理員"`）。
-    * 可顯示給使用者的業務錯誤一律 `throw new BusinessException("訊息")`（可帶狀態碼，如越權為 403），由全域處理回傳其訊息；其他例外寫入 Log，對外只回通用訊息。
+    * 可顯示給使用者的業務錯誤一律 `throw new BusinessException("訊息")`（可帶狀態碼，如越權為 403），由全域處理回傳其訊息；其他例外寫入 Log 與 `BasicExceptionlog`（見第 9 點），對外只回通用訊息。
     * 嚴禁吞掉例外後繼續執行。
 
 ## 後端架構與目錄規範 (Backend Structure)
@@ -89,13 +98,21 @@
 | `Models/[Entity]/[Entity].cs` | 資料表實體，只描述欄位；namespace 一律維持 `backend.Models`（避免與類別同名，並保持 Migration 快照型別名稱不變） |
 | `Data/` | `AppDbContext`（關聯、唯一索引、靜態種子）、動態種子 |
 | `Exceptions/BusinessException.cs` | 可顯示給使用者的業務錯誤 |
-| `Extensions/` | 擴充方法（如 `User.GetUserId()`） |
+| `Extensions/` | 擴充方法（如 `User.GetBasicUserId()`） |
 
-**基本資料表（驗證與權限）：** 各專案共用 `Users`、`Groups`、`Permissions`、`UserGroups`、`GroupPermissions`、`_LoginErr_log`、`_Pwd_log`，名稱與欄位維持一致；欄位定義見 `skills/new-project/SKILL.md`，既有專案以專案內的 `Models/` 為準。
+**基本資料表（驗證、權限與系統紀錄）：** 各專案共用 `BasicUser`、`BasicGroup`、`BasicPermission`、`BasicUserGroup`、`BasicGroupPermission`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicExceptionlog`、`BasicSyslog`，名稱與欄位維持一致；欄位定義見 `skills/new-project/SKILL.md`，既有專案以專案內的 `Models/` 為準。
 
-* 權限名稱為 `{資料表名稱小寫}.{動作}`，與資料表一致，如 `users.read`、`groups.update`、`bulletins.create`；動作為 `read`、`create`、`update`、`delete`。授權 Policy 名稱與權限名稱相同。
+* 系統資料表以 `Basic` 前置、單數命名；資料表、`Models` 實體類別、`DbSet` 三者同名（如表 `BasicUser` ↔ 類別 `BasicUser` ↔ `db.BasicUser`），導覽屬性與 `SeedData` 陣列亦同名。外鍵欄位為 `{資料表名稱}Id`（如 `BasicUserId`、`BasicGroupId`、`BasicPermissionId`）；DTO 與前端型別中引用其他資料表的屬性同樣以資料表名稱開頭（如 `BasicGroupIds`、`BasicPermissionIds`、`BasicGroupNames`；前端為 `basicGroupIds`）。
+* 功能層與 API 路徑採 REST 複數（資料表名稱加 s）：`Controllers/`、`Services/`、`DTOs/` 的資料夾與 namespace、前端 `src/views/` 與路由 path／name、API 路徑，如 `Controllers/BasicUsers/BasicUsersController.cs`、`/api/basicusers`、前端路由 `basicusers`。功能層不可用單數，否則 namespace（如 `backend.Services.BasicUser`）會與實體類別同名而無法解析。
+* 功能 DTO、前端型別與元件以資料表名稱開頭、用途在後，前後端 DTO 與型別同名：如 `BasicUserListItem`、`BasicUserDetail`、`BasicUserCreateRequest`、`BasicGroupSaveRequest`、`BasicUserFormData`、`BasicUserFormModal.vue`。驗證等非資料表功能的 DTO 若指向資料表，名稱須含資料表名稱（如 `CurrentBasicUserResult`、`LoginResult.BasicUser`）。
+* 方法與函式名稱提到資料表時使用資料表名稱：前端 API 函式如 `getBasicUsers()`、`createBasicUser()`、`getBasicGroupOptions()`；後端如 `GetBasicGroupOptionsAsync`、`GetBasicUserPermissionsAsync`、`GetCurrentBasicUserAsync`、`User.GetBasicUserId()`；常數如 `SeedData.AdminBasicUserId`。只操作自身資料表的方法維持動作命名（如 `GetPagedAsync`、`CreateAsync`）。
+* 區域變數、參數、元件 props 與 HTML id 同樣以資料表名稱命名（camelCase／kebab-case）：如 `basicUser`、`basicUserId`、`newBasicGroupIds`、`operatorBasicPermissionIds`、`v-for="basicGroup in basicGroupOptions"`、`:basic-group-options`、`id="basic-user-form"`。LINQ／陣列方法的 lambda 參數可用單字母縮寫（如 `u => u.Id`、`ug`、`gp`）。
+* 其他指向資料表的類別、屬性與路徑同樣使用資料表名稱：跨功能服務 `Services/BasicPermissions/BasicPermissionsService`、權限常數 `BasicPermissionNames`、授權 `BasicPermissionRequirement`、計數屬性 `BasicUserCount`、前端 store `auth.basicUser`／`auth.hasBasicPermission()`、選單與路由 `basicPermission`、API 子路徑 `/api/basicusers/basicgroup-options`、`/api/basicgroups/basicpermissions`。框架內建名稱（如 `ControllerBase.User`、`RequireAuthenticatedUser()`）不在此限。
+* 權限名稱為 `{資料表名稱小寫}.{動作}`，與資料表一致，如 `basicuser.read`、`basicgroup.update`、`bulletins.create`；動作為 `read`、`create`、`update`、`delete`。授權 Policy 名稱與權限名稱相同。
+* 撰寫原生 SQL（SSMS、報表、`FromSql`）時使用資料表名稱（如 `BasicUser`），不是 API 路徑或功能名稱。
 * 權限一律指派給群組，不直接指派給使用者。
-* 種子資料：「系統管理員」群組擁有全部權限且受保護；預設管理員以靜態種子於建表時建立（帳密見 `new-project` skill）。
+* 種子資料：「系統管理員」群組擁有全部權限且受保護；「訪客」群組擁有全部檢視（`.read`）權限；預設管理員（系統管理員群組）與預設一般使用者（訪客群組）以靜態種子於建表時建立（帳密見 `new-project` skill；一般使用者的初始密碼為已知值，正式上線前須停用或變更）。
+* 所有資料表與欄位（含業務功能）一律在 `AppDbContext` 以 `HasComment` 加上繁體中文描述（資料表為 `ToTable("名稱", t => t.HasComment("描述"))`），隨 Migration 寫入 SQL Server 的 `MS_Description`；描述只說明欄位本身的意義（自動編號主鍵為「流水號」、外鍵註明指向的資料表欄位，如「使用者編號（BasicUser.Id）」），不寫特定資料的值或程式約定。`__EFMigrationsHistory` 由 EF Core 管理，不加描述。
 * SQL Server 上可為 null 的欄位不建唯一索引，改建一般索引：EF Core 會建成篩選索引，以 sqlcmd 等預設 `QUOTED_IDENTIFIER OFF` 的工具更新該表時會失敗。
 
 **Service 層寫法：**
@@ -114,8 +131,8 @@ src/views/[Feature]/
 ├─ Index.vue      頁面（列表、流程控制、呼叫 API）
 ├─ api.ts         該功能 API
 ├─ types.ts       該功能型別
-├─ routes.ts      該功能路由與權限 meta
-└─ components/    該功能子元件，如 [Feature]FormModal.vue
+├─ routes.ts      該功能路由與權限 meta（`meta.basicPermission`）
+└─ components/    該功能子元件，如 [Entity]FormModal.vue（`BasicUserFormModal.vue`）
 ```
 
 **UI 慣例：**

@@ -8,11 +8,14 @@
 燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問：
 
 1. **後端**：以 `dotnet new web -o <專案目錄>\backend -n backend` 建立（空白範本，只產生 `backend.csproj`、`Program.cs`、`appsettings*.json`、`Properties/launchSettings.json`，不含範本檔與 OpenApi 套件）；Controller、Swagger 等依規範自行加入，套件以 `dotnet add package` 加入並寫明確版本號（不用浮動版本）；依規範建立 `Controllers/`、`Services/`、`DTOs/`、`Models/`、`Data/`、`Exceptions/`、`Extensions/`。
-   - 資料表：依 SKILL.md 第 2 節「將建立的資料表」，加上第 23 項的業務資料表。
-   - 種子（皆以 `HasData` 靜態種子，隨 Migration 建表寫入）：權限、受保護的「系統管理員」群組、預設管理員。
-     - 預設管理員：第 9、10 項的帳密，加入系統管理員群組；建立時以 BCrypt 產生雜湊，程式與 Migration 只存雜湊，不出現明文密碼。
-     - 同時寫入一筆 `_Pwd_log`（同一雜湊、`CreatedAt` 設為建立專案當日的固定日期），首次登入不強制變更密碼，之後依密碼有效天數正常到期；無歷程會被視為逾期，因此這筆歷程不可省略。
+   - 資料表：依 SKILL.md 第 2 節「將建立的資料表」，加上第 23 項的業務資料表；資料表與每個欄位以 `HasComment` 加上描述（基本資料表的描述沿用範本 `templates/project/backend/Data/AppDbContext.cs`）。
+   - 種子（皆以 `HasData` 靜態種子，隨 Migration 建表寫入）：權限、受保護的「系統管理員」群組（`Id = 1`）、「訪客」群組（`Id = 2`）、預設管理員、預設一般使用者。
+     - 預設管理員：第 9、10 項的管理員帳密，加入系統管理員群組；建立時以 BCrypt 產生雜湊，程式與 Migration 只存雜湊，不出現明文密碼。
+     - 預設一般使用者：第 9、10 項的一般使用者帳密（雜湊方式同上），加入訪客群組；訪客群組的權限以 `SeedData.BasicPermission` 中名稱以 `.read` 結尾者產生，新增業務功能權限時自動擁有檢視權限。訪客群組不受保護，可由管理員調整或刪除。
+     - 兩個帳號各寫入一筆 `BasicPwdlog`（同一雜湊、`CreatedAt` 設為建立專案當日的固定日期），首次登入不強制變更密碼，之後依密碼有效天數正常到期；無歷程會被視為逾期，因此這筆歷程不可省略。
    - 全域例外 Middleware、`BusinessException`、`ApiResponse`／`PagedResult`、`InvalidModelStateResponseFactory`（模型驗證失敗回 `ApiResponse`；JSON 解析失敗或缺少 Body 時只回「請求資料格式不正確」，不洩漏型別或路徑）；設定 `SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true`，DTO 一律明確標註中文驗證訊息。
+   - 系統錯誤紀錄：`Services/BasicExceptionlogs/`（`IBasicExceptionlogsService` 以 Singleton 註冊，`WriteAsync` 以 `IServiceScopeFactory` 另建 DbContext 寫入、失敗只寫 `ILogger`；`ArchiveAsync` 分批轉存、先寫檔再以 `ExecuteDeleteAsync` 刪除）、`BasicExceptionlogArchiveService`（`BackgroundService`，啟動時執行一次，之後以 `PeriodicTimer` 每天一次；轉存失敗時寫入 `ILogger` 並呼叫 `WriteAsync`，不中斷服務）、`Settings/BasicExceptionlogSettings.cs`（`BasicExceptionlog:RetentionDays`）；全域例外 Middleware 與郵件背景服務呼叫 `WriteAsync`，規則見通用規範第 9 點。`.gitignore` 加入 `backend/Logs/`。
+   - 系統異動歷程：`Data/BasicSyslogInterceptor.cs`（`SaveChangesInterceptor`，以 Scoped 註冊並以 `AddDbContext((sp, options) => ... .AddInterceptors(...))` 掛上；`SavingChangesAsync` 擷取異動前資料、呼叫轉存、無交易時開啟交易，`SavedChangesAsync` 取得新增資料的 Id 後寫入 `BasicSyslog` 並提交，`SaveChangesFailedAsync` 還原；需 `AddHttpContextAccessor` 取 MethodName 與帳號）、`Services/BasicSyslogs/`（`IBasicSyslogsService.ArchiveIfDueAsync`，Singleton，以 `SemaphoreSlim` 確保同時只有一個轉存，當天確認過即略過）、`Settings/BasicSyslogSettings.cs`（`BasicSyslog:RetentionDays`）。轉存路徑與 MethodName 共用 `Extensions/LogArchive.cs`、`Extensions/HttpContextExtensions.cs`，規則見通用規範第 9 點。
    - 失敗回應的 HTTP 狀態碼與 `ApiResponse`：
      - JWT `OnChallenge`（呼叫 `HandleResponse()`）回 401、自訂 `IAuthorizationMiddlewareResultHandler` 回 403、速率限制 `OnRejected` 回 429、`/api/{**path}` 回 404（不落入 SPA fallback）。
      - `SuppressMapClientErrors = true` 並以 `UseStatusCodePages` 將 `/api` 下沒有 Body 的錯誤（405、415 等）轉為 `ApiResponse`。
@@ -44,5 +47,5 @@
    - 部署子路徑（第 19 項）：前端 `.env` 設定 `VITE_APP_BASE`（以 `/` 開頭與結尾，納入版控）；`vite.config.ts` 只在建置時套用為 `base`（開發固定 `/`）；router `createWebHistory(import.meta.env.BASE_URL)`、Axios ``baseURL: `${import.meta.env.BASE_URL}api` ``；後端由 IIS 自動設定 `PathBase`，不需另外處理。
    - 專案 CLAUDE.md 註明發佈流程使用 `/publish-project`。
 4. **專案 CLAUDE.md**：第一行以 `@D:/Jovi/Localhost/_ClaudeCode/_Claude_Standards/CLAUDE.md` 匯入通用規範，再記錄專案用途、目錄、啟動方式、專案特有設定與待辦，並註明「本專案未使用 new-project 範本建立」。
-5. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼。
-6. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`MailPickup/`、`.env.local`）；**不 commit**，於完成回報提醒使用者自行 commit。
+5. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼，並以 `sqlcmd` 唯讀查詢確認每張資料表與欄位都有 `MS_Description`。
+6. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`MailPickup/`、`Logs/`、`.env.local`）；**不 commit**，於完成回報提醒使用者自行 commit。

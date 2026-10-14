@@ -12,5 +12,5 @@ public class LoginResult
 
     public string? Token { get; set; }
     public DateTime? ExpiresAt { get; set; }
-    public CurrentUserResult? User { get; set; }
+    public CurrentBasicUserResult? BasicUser { get; set; }
 }

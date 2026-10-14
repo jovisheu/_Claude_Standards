@@ -1,3 +1,4 @@
+using backend.Services.BasicExceptionlogs;
 using backend.Settings;
 using MailKit.Net.Smtp;
 using MailKit.Security;
@@ -13,6 +14,7 @@ public class MailBackgroundService(
     MailQueue queue,
     IOptions<SmtpSettings> smtpOptions,
     IWebHostEnvironment env,
+    IBasicExceptionlogsService basicExceptionlogs,
     ILogger<MailBackgroundService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -30,6 +32,7 @@ public class MailBackgroundService(
                 {
                     // 不記錄收件人與內文，例外訊息可能含收件人，只記錄型別
                     logger.LogError("郵件寄送失敗：{Category} {ExceptionType}", item.Category, ex.GetType().Name);
+                    await basicExceptionlogs.WriteAsync(ex, $"{nameof(MailBackgroundService)}.{nameof(SendAsync)}", null, $"郵件寄送失敗：{item.Category}");
                 }
             }
         }

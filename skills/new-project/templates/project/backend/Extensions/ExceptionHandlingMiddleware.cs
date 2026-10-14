@@ -1,11 +1,15 @@
 using backend.Exceptions;
+using backend.Services.BasicExceptionlogs;
 
 namespace backend.Extensions;
 
 /// <summary>
-/// 全域例外處理：業務錯誤回傳其訊息，其他例外寫入 Log、對外只回通用訊息
+/// 全域例外處理：業務錯誤回傳其訊息，其他例外寫入 Log 與 BasicExceptionlog、對外只回通用訊息
 /// </summary>
-public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<ExceptionHandlingMiddleware> logger)
+public class ExceptionHandlingMiddleware(
+    RequestDelegate next,
+    IBasicExceptionlogsService basicExceptionlogs,
+    ILogger<ExceptionHandlingMiddleware> logger)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -31,6 +35,7 @@ public class ExceptionHandlingMiddleware(RequestDelegate next, ILogger<Exception
         catch (Exception ex)
         {
             logger.LogError(ex, "未處理的例外：{Method} {Path}", context.Request.Method, context.Request.Path);
+            await basicExceptionlogs.WriteAsync(ex, context.GetMethodName(), context.User.Identity?.Name);
             if (context.Response.HasStarted) throw;
             await context.Response.WriteApiResponseAsync(StatusCodes.Status500InternalServerError, "系統發生異常，請聯繫管理員");
         }

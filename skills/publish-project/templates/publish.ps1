@@ -150,5 +150,5 @@ Write-Host "  檔案數量：$($files.Count) 個，共 $sizeMb MB"
 Write-Host "  部署子路徑：$appBase"
 Write-Host "  耗時：$([math]::Round($stopwatch.Elapsed.TotalSeconds)) 秒"
 Write-Host ''
-Write-Host '後續：先清空 IIS 應用程式目錄，再複製輸出目錄內容（應用程式名稱須與部署子路徑一致）。' -ForegroundColor Yellow
+Write-Host '後續：先清空 IIS 應用程式目錄（保留 Logs 目錄），再複製輸出目錄內容（應用程式名稱須與部署子路徑一致）。' -ForegroundColor Yellow
 Write-Host '注意：輸出包含 appsettings.json，覆蓋前請確認正式環境的加密設定值與網址。' -ForegroundColor Yellow

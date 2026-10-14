@@ -14,7 +14,7 @@ public class TokenService(IOptions<JwtSettings> jwtOptions) : ITokenService
     /// <summary>JWT 簽章金鑰（設定檔中的金鑰為 Base64 編碼的隨機位元組）</summary>
     public static SymmetricSecurityKey CreateSigningKey(string key) => new(Convert.FromBase64String(key));
 
-    public (string Token, DateTime ExpiresAt) CreateAccessToken(User user)
+    public (string Token, DateTime ExpiresAt) CreateAccessToken(BasicUser basicUser)
     {
         var expiresAt = DateTime.Now.AddMinutes(_settings.ExpireMinutes);
 
@@ -26,8 +26,8 @@ public class TokenService(IOptions<JwtSettings> jwtOptions) : ITokenService
             Expires = expiresAt,
             Subject = new ClaimsIdentity(
             [
-                new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
-                new Claim(JwtRegisteredClaimNames.UniqueName, user.Username),
+                new Claim(JwtRegisteredClaimNames.Sub, basicUser.Id.ToString()),
+                new Claim(JwtRegisteredClaimNames.UniqueName, basicUser.Username),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString("N"))
             ]),
             SigningCredentials = new SigningCredentials(CreateSigningKey(_settings.Key), SecurityAlgorithms.HmacSha256)

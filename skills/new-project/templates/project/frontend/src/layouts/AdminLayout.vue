@@ -13,7 +13,7 @@ const message = useMessageStore()
 const appTitle = import.meta.env.VITE_APP_TITLE
 const sidebarOpen = ref(false)
 
-const visibleMenu = computed(() => menuItems.filter((item) => !item.permission || auth.hasPermission(item.permission)))
+const visibleMenu = computed(() => menuItems.filter((item) => !item.basicPermission || auth.hasBasicPermission(item.basicPermission)))
 
 // 小螢幕切換頁面後收合選單
 watch(
@@ -62,7 +62,7 @@ async function logout() {
           <span class="font-medium text-gray-700">{{ route.meta.title }}</span>
         </div>
         <div class="flex items-center gap-3 text-sm">
-          <span class="hidden text-gray-600 sm:inline">{{ auth.user?.displayName }}（{{ auth.user?.username }}）</span>
+          <span class="hidden text-gray-600 sm:inline">{{ auth.basicUser?.displayName }}（{{ auth.basicUser?.username }}）</span>
           <button type="button" class="btn-secondary px-3 py-1.5" @click="logout">登出</button>
         </div>
       </header>

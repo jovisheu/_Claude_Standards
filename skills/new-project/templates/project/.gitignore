@@ -12,6 +12,7 @@ backend/wwwroot/
 
 # 郵件 Pickup 目錄（Smtp:Enabled = false 時產生，內含重設連結）
 backend/MailPickup/
+backend/Logs/
 
 # 記錄檔
 logs/

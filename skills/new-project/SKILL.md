@@ -22,7 +22,8 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 - 一次一個指令、使用絕對路徑；不以 `cd ... &&`、`;` 串接多個指令，也不在指令前加變數設定（`VAR=... cmd`）或用 `$env:` 設定環境變數；需要指定環境或覆寫設定時改用命令列參數（如 `--environment Production`、`--Security:Login:CaptchaEnabled=false`），讓指令以 `dotnet` 開頭，符合允許規則。
 - 讀檔、搜尋、寫檔、修改分別用 Read、Grep／Glob、Write、Edit 工具，不用 `cat`、`sed -i`、`echo >`、heredoc；列目錄可用 `ls`。
 - 不用 `python`（Windows 可能是會卡住的商店捷徑）。
-- 全程不刪除檔案：使用範本時由範本複製建立；不使用範本時後端以空白範本 `dotnet new web` 建立、前端不使用 `npm create vite`（見 `no-template.md`）。兩者都不會產生需要刪除的檔案；`Remove-Item`、`rm` 在權限設定中一律詢問，因此不應出現在建立流程中。
+- 全程不刪除檔案：使用範本時由範本複製建立；不使用範本時後端以空白範本 `dotnet new web` 建立、前端不使用 `npm create vite`（見 `no-template.md`）。兩者都不會產生需要刪除的檔案；`Remove-Item`、`rm` 在權限設定中一律詢問，因此不應出現在建立流程中。（發佈腳本會清空 `backend/wwwroot/` 與 `publish/` 後重建，新專案首次發佈時兩者皆不存在，不會刪除既有檔案。）
+- 發佈腳本以 `powershell -NoProfile -File "<專案目錄>\publish.ps1" -SkipNpmInstall` 執行（單一指令、絕對路徑）。
 - 佔位符一律以 Edit 工具替換（同一檔案多處相同值可用 `replace_all`），不用 `sed -i` 或 PowerShell 字串取代（PowerShell 5.1 寫檔可能改變編碼或 BOM）。
 - 驗證時不以 `sqlcmd` 或其他方式異動資料庫資料（見第 4 節）；`sqlcmd` 只用於連線測試與唯讀查詢。
 - 讀取 `_Project_Info` 的明文密碼時，以 Read 工具讀取後直接作為參數使用，不在回報或指令輸出中顯示。
@@ -57,7 +58,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | 業務功能（第 23 項） | 有填，但無法判斷資料表欄位、型別或關聯 |
 | 部署（第 19、20 項） | `部署方式` 不是 IIS／Kestrel，或指定前後端分開部署卻未提供來源白名單 |
 | 建立方式（第 25 項） | `使用範本` 不是留白、「是」或「否」；或使用範本但 `templates\project\` 不存在 |
-| 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗 |
+| 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗；發佈腳本執行失敗（不修改腳本繞過） |
 | 破壞性動作 | 任何會覆蓋、刪除既有檔案或資料庫的步驟 |
 
 `SendMail_Info.txt` 不存在、`Project_Info.txt` 的選填欄位留白、`sqlcmd` 未安裝（改以 Migration 結果確認連線）皆為綠燈，採預設值。
@@ -78,21 +79,28 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 
 | 資料表 | 主要欄位 | 說明 |
 | --- | --- | --- |
-| `Users` | Id、Username（唯一）、Email（唯一）、PasswordHash、DisplayName、IsActive、CreatedAt、UpdatedAt、PasswordResetTokenHash、PasswordResetExpiresAt | 使用者 |
-| `Groups` | Id、Name（唯一）、Description、CreatedAt | 群組（角色） |
-| `Permissions` | Id、Name（唯一）、Description、Module | 權限，以靜態種子建立 |
-| `UserGroups` | UserId + GroupId（複合主鍵） | 使用者與群組多對多 |
-| `GroupPermissions` | GroupId + PermissionId（複合主鍵） | 群組與權限多對多 |
-| `_LoginErr_log` | Id、Username、CreatedAt；索引 (Username, CreatedAt) | 登入失敗紀錄（鎖定判斷） |
-| `_Pwd_log` | Id、Username、PasswordHash、CreatedAt；索引 (Username, CreatedAt) | 密碼歷程（重複與到期判斷） |
+| `BasicUser` | Id、Username（唯一）、Email（唯一）、PasswordHash、DisplayName、IsActive、CreatedAt、UpdatedAt、PasswordResetTokenHash、PasswordResetExpiresAt | 使用者 |
+| `BasicGroup` | Id、Name（唯一）、Description、CreatedAt | 群組（角色） |
+| `BasicPermission` | Id、Name（唯一）、Description、Module | 權限，以靜態種子建立 |
+| `BasicUserGroup` | BasicUserId + BasicGroupId（複合主鍵） | 使用者與群組多對多 |
+| `BasicGroupPermission` | BasicGroupId + BasicPermissionId（複合主鍵） | 群組與權限多對多 |
+| `BasicLoginErrlog` | Id、Username、CreatedAt；索引 (Username, CreatedAt) | 登入失敗紀錄（鎖定判斷） |
+| `BasicPwdlog` | Id、Username、PasswordHash、CreatedAt；索引 (Username, CreatedAt) | 密碼歷程（重複與到期判斷） |
+| `BasicExceptionlog` | Id、ExceptionType、MethodName、Message、StackTrace、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統錯誤紀錄（超過保留天數轉存 txt 後刪除） |
+| `BasicSyslog` | Id、Action（C／U／D）、MethodName、BeforeData（JSON 陣列）、AfterData（JSON 陣列）、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統異動歷程（寫入前將超過保留天數的紀錄轉存 txt 後刪除） |
 
-- 種子資料：權限（`users.read`、`groups.update` 等）、受保護的「系統管理員」群組（`Id = 1`）、第 9 項的預設管理員，以及一筆初始密碼歷程（建立日期為建立專案當日，首次登入不強制變更密碼）。
-- 第 23 項有業務功能時，另列出該功能的資料表與欄位。
+- 種子資料：權限（`basicuser.read`、`basicgroup.update` 等）、受保護的「系統管理員」群組（`Id = 1`，全部權限）、「訪客」群組（`Id = 2`，全部 `*.read` 權限，含業務功能的檢視權限）、第 9 項的預設管理員（`Id = 1`，系統管理員群組）與預設一般使用者（`Id = 2`，訪客群組），以及兩人各一筆初始密碼歷程（建立日期為建立專案當日，首次登入不強制變更密碼）。
+- 第 23 項有業務功能時，另列出該功能的資料表與欄位（含資料表與欄位描述）。
+- 所有資料表與欄位建立時一併以 `HasComment` 加上描述（規則見通用規範「後端架構與目錄規範」）；基本資料表的描述以範本 `backend/Data/AppDbContext.cs` 為準。
 - EF Core 另會自動建立 `__EFMigrationsHistory`。
 
-### 三、預設管理員（種子資料）
-9. 管理員帳號、Email、顯示名稱 — 預設帳號：`skyeyes`；Email：`jovi@skyeyes.tw`；、顯示名稱：`系統管理員`；
-10. 管理員初始密碼 — 預設：`J@vi1212`（建表時寫入）
+### 三、預設帳號（種子資料）
+9. 帳號、Email、顯示名稱：
+   - 管理員 — 預設帳號：`skyeyes`；Email：`jovi@skyeyes.tw`；顯示名稱：`系統管理員`
+   - 一般使用者（訪客群組，只能檢視）— 預設帳號：`guest`；Email：`guest@skyeyes.tw`；顯示名稱：`訪客`
+10. 初始密碼（建表時寫入雜湊，須符合密碼規則）：
+   - 管理員 — 預設：`J@vi1212`
+   - 一般使用者 — 預設：`Guest@1234`（初始密碼為已知值，完成回報與專案 CLAUDE.md 待辦須提醒正式上線前停用或變更）
 
 ### 四、安全參數（寫入 `appsettings.json`）
 11. 登入錯誤鎖定 — 預設：15 分鐘內錯 5 次，鎖定 15 分鐘
@@ -102,6 +110,8 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 15. 登入速率限制 — 預設：每 IP 每分鐘 10 次
 16. 登入是否使用驗證碼 — 預設：是（後端產生的圖形驗證碼，5 碼）
 
+系統錯誤紀錄與系統異動歷程的保留天數固定寫入 `BasicExceptionlog:RetentionDays = 30`、`BasicSyslog:RetentionDays = 30`，不列入詢問項目。
+
 ### 五、郵件（忘記密碼）
 17. SMTP：主機、Port、SSL、寄件者名稱與地址、帳密 — 預設：讀取 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\_Project_Info\SendMail_Info.txt`（`Smtp` 區段，`<專案名稱>` 替換為第 1 項；`Password` 為明文，建立時以新專案的 AES 金鑰加密後寫入 `appsettings.json`）；檔案不存在時先寫入本機檔案（`Enabled = false`）
 18. 前端網址（重設連結取自設定檔，須含部署子路徑）— 預設：`http://localhost/<專案名稱>`；`Project_Info.txt` 的 `正式網址` 有填時一併寫入
@@ -109,7 +119,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 ### 六、部署
 19. 部署方式：IIS（產生 `web.config` 移除標頭，需 IIS 10+）／Kestrel 獨立執行 — 預設：`Project_Info.txt` 的 `部署方式`，留白為 IIS；部署子路徑預設 `/<專案名稱>/`（站台根目錄為 `/`）
 20. 前後端是否同源 — 預設：同源（SPA 由後端 `wwwroot` 提供，不開 CORS）；分開部署時提供來源白名單
-21. 是否附發佈用 `.ps1` 腳本 — 預設：是（以 `publish-project` skill 的範本建立，UTF-8 with BOM）
+21. 是否附發佈用 `.ps1` 腳本並於建立完成後發佈 — 預設：是（以 `publish-project` skill 的範本建立，UTF-8 with BOM；驗證完成後依 `publish-project` 流程執行一次發佈並測試發佈結果，見第 5 節）
 
 ### 七、功能範圍
 22. 第一版基本功能 — 預設：登入／登出、忘記密碼、逾期變更密碼、使用者管理、群組與權限管理
@@ -121,16 +131,16 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 
 ## 3. 建立專案（使用範本）
 
-第 25 項為「否」時跳過本節，改依 `no-template.md` 建立，完成後接第 4 節驗證。
+第 25 項為「否」時跳過本節，改依 `no-template.md` 建立，完成後接第 4 節驗證與第 5 節發佈。
 
 燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問。以下 `<範本>` 指 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\new-project\templates`。
 
-範本已包含規範要求的所有基本功能與資安設定（JWT 驗證、預設 `[Authorize]`、權限查資料庫、全域例外處理、各狀態碼的 `ApiResponse`、安全標頭、速率限制、驗證碼、AES 加密設定與 `encrypt` 工具模式、單一密碼設定方法、郵件範本、前端 interceptor 與登入狀態、部署子路徑、`web.config`），不需另外撰寫。
+範本已包含規範要求的所有基本功能與資安設定（JWT 驗證、預設 `[Authorize]`、權限查資料庫、全域例外處理與系統錯誤紀錄（`BasicExceptionlog` 寫入與每日轉存）、系統異動歷程（`BasicSyslog` 自動寫入與轉存）、各狀態碼的 `ApiResponse`、安全標頭、速率限制、驗證碼、AES 加密設定與 `encrypt` 工具模式、單一密碼設定方法、郵件範本、前端 interceptor 與登入狀態、部署子路徑、`web.config`），不需另外撰寫。
 
 1. **複製範本**：
    - `Copy-Item -LiteralPath "<範本>\project" -Destination "<專案目錄>" -Recurse`（目標目錄不存在時會一併建立；上層資料夾不存在時先以 `New-Item -ItemType Directory` 建立）。
    - 發佈腳本另外複製：`Copy-Item -LiteralPath "D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\templates\publish.ps1" -Destination "<專案目錄>\publish.ps1"`（範本為 UTF-8 with BOM，複製即保留）。
-2. **產生金鑰與雜湊**：將 `<範本>\keygen` 以 `Copy-Item -Recurse` 複製到 scratchpad，執行 `dotnet run --project <scratchpad>\keygen\keygen.csproj -- "<第 10 項密碼>"`，取得 `AES256Key`、`AES256IV`、`JwtKey`（Base64，`TokenService` 以 Base64 解碼）、`AdminPasswordHash`。輸出含機密，只用於填入範本，不寫入回報。不可沿用其他專案的值。
+2. **產生金鑰與雜湊**：將 `<範本>\keygen` 以 `Copy-Item -Recurse` 複製到 scratchpad，執行 `dotnet run --project <scratchpad>\keygen\keygen.csproj -- "<第 10 項管理員密碼>" "<第 10 項一般使用者密碼>"`，取得 `AES256Key`、`AES256IV`、`JwtKey`（Base64，`TokenService` 以 Base64 解碼）、`AdminPasswordHash`、`GuestPasswordHash`。輸出含機密，只用於填入範本，不寫入回報。不可沿用其他專案的值。
 3. **替換佔位符**：以 Edit 工具將範本中的 `__名稱__` 換成實際值：
 
    | 佔位符 | 值 | 所在檔案 |
@@ -145,8 +155,10 @@ sqlcmd -?            # 選用，用於確認資料庫連線
    | `__SMTP_ENABLED__`、`__SMTP_HOST__`、`__SMTP_PORT__`、`__SMTP_USE_SSL__`、`__SMTP_SENDER_NAME__`、`__SMTP_SENDER_EMAIL__`、`__SMTP_USERNAME__` | 第 17 項（`SendMail_Info.txt` 不存在時 `Enabled` 為 `false`、其餘留空字串、Port `587`、UseSsl `true`） | `backend/appsettings.json` |
    | `__SEED_YEAR__`、`__SEED_MONTH__`、`__SEED_DAY__` | 建立專案當日（數字，不補 0） | `backend/Data/SeedData.cs` |
    | `__SEED_DATE__` | 建立專案當日（`yyyy-MM-dd`） | `CLAUDE.md` |
-   | `__ADMIN_USERNAME__`、`__ADMIN_EMAIL__`、`__ADMIN_DISPLAY_NAME__` | 第 9 項 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md` |
+   | `__ADMIN_USERNAME__`、`__ADMIN_EMAIL__`、`__ADMIN_DISPLAY_NAME__` | 第 9 項管理員 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md` |
    | `__ADMIN_PASSWORD_HASH__` | keygen 輸出的 `AdminPasswordHash` | `backend/Data/SeedData.cs` |
+   | `__GUEST_USERNAME__`、`__GUEST_EMAIL__`、`__GUEST_DISPLAY_NAME__` | 第 9 項一般使用者 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md`（帳號兩處） |
+   | `__GUEST_PASSWORD_HASH__` | keygen 輸出的 `GuestPasswordHash` | `backend/Data/SeedData.cs` |
    | `__DB_SERVER__`、`__DB_NAME__`、`__DB_AUTH__` | 第 6、7 項（`__DB_AUTH__` 為「SQL 帳密驗證」或「Windows 整合驗證」） | `CLAUDE.md` |
    | `__DEPLOY_DESCRIPTION__` | 第 19 項：「IIS（需 IIS 10 以上與 ASP.NET Core Hosting Bundle）」或「Kestrel 獨立執行」 | `CLAUDE.md` |
 
@@ -160,12 +172,12 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 5. **主色與 Logo**（第 24 項，留白則略過）：
    - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺。
    - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（`alt` 為系統名稱），保留系統名稱文字。
-6. **業務功能**（第 23 項，留白則略過）：以範本的使用者管理（`Users`）為樣板，依規範新增：
-   - 後端：`Models/<Entity>/`、`AppDbContext` 的 `DbSet` 與欄位設定、`DTOs/<Feature>/`、`Services/<Feature>/`、`Controllers/<Feature>/`；權限加入 `Data/PermissionNames.cs`，並在 `Data/SeedData.cs` 的 `Permissions` 往後新增（Id 接續，不改動既有 Id；系統管理員群組自動擁有全部權限）。
-   - 前端：`src/views/<Feature>/`（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/<Feature>FormModal.vue`），版面、表格、Modal、按鈕樣式比照 `Users`；在 `src/router/index.ts` 加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）。
+6. **業務功能**（第 23 項，留白則略過）：以範本的使用者管理（`BasicUsers`）為樣板，依規範新增：
+   - 後端：`Models/<Entity>/`、`AppDbContext` 的 `DbSet` 與欄位設定（資料表與每個欄位皆以 `HasComment` 加上描述）、`DTOs/<Feature>/`、`Services/<Feature>/`、`Controllers/<Feature>/`；權限加入 `Data/BasicPermissionNames.cs`，並在 `Data/SeedData.cs` 的 `BasicPermission` 往後新增（Id 接續，不改動既有 Id；系統管理員群組自動擁有全部權限，訪客群組自動擁有 `.read` 權限）。
+   - 前端：`src/views/<Feature>/`（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/<Entity>FormModal.vue`），版面、表格、Modal、按鈕樣式比照 `BasicUsers`；在 `src/router/index.ts` 加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）。
    - 專案 CLAUDE.md 的種子說明更新權限筆數。
 7. **安裝前端套件**：`npm ci --prefix <frontend 絕對路徑>`（依範本的 `package-lock.json` 安裝，不升級版本）。
-8. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼。
+8. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`（須指定 `--startup-project`，否則目前目錄若為其他 .NET 專案會被當成啟動專案）；確認產生的 Migration 不含明文密碼。建表後以 `sqlcmd` 唯讀查詢 `sys.extended_properties`，確認每張資料表與每個欄位都有 `MS_Description`（`__EFMigrationsHistory` 除外）。
 9. **git**：`git init <專案目錄>`（範本已含 `.gitignore`）；**不 commit**，於完成回報提醒使用者自行 commit。
 
 ## 4. 驗證
@@ -173,9 +185,27 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 - 使用範本時：佔位符已全部替換（Grep `__[A-Z0-9_]+__` 為 0 筆）。
 - `dotnet build`、`npm run build` 皆須成功；第 8 項為是時執行 Migration。失敗時自行修正，2 次仍失敗為紅燈，停下回報錯誤並詢問。使用範本時，範本本身的問題（非佔位符或業務功能造成）修正後，於回報中提醒使用者同步更新範本。
 - 可啟動時實際啟動後端（背景執行），以 `curl -s http://localhost:<port>/...` 確認登入流程與回應標頭。**驗證只做不留下資料的請求**，建完的資料庫只含種子資料：
-  - 可測：回應標頭、`ApiResponse` 格式、JSON 格式錯誤與模型驗證、驗證碼錯誤（不計入錯誤次數）、401（無 Token、無效 Token）、`/api` 不存在路徑 404、錯誤 Content-Type 回 415 `ApiResponse`、連續送出驗證碼錯誤的登入直到 429、以命令列參數關閉驗證碼啟動（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`，`Program.cs` 須以 `WebApplication.CreateBuilder(args)` 讀取命令列設定）後用預設管理員登入，確認直接回傳 JWT 與 `expiresAt`（`requirePasswordChange` 為 `false`），並以該 Token 呼叫需登入的端點（如 `/api/auth/me`）。
-  - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `_LoginErr_log`）、新增／編輯／刪除資料、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
+  - 可測：回應標頭、`ApiResponse` 格式、JSON 格式錯誤與模型驗證、驗證碼錯誤（不計入錯誤次數）、401（無 Token、無效 Token）、`/api` 不存在路徑 404、錯誤 Content-Type 回 415 `ApiResponse`、連續送出驗證碼錯誤的登入直到 429、以命令列參數關閉驗證碼啟動（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`，`Program.cs` 須以 `WebApplication.CreateBuilder(args)` 讀取命令列設定）後用預設管理員登入，確認直接回傳 JWT 與 `expiresAt`（`requirePasswordChange` 為 `false`），並以該 Token 呼叫需登入的端點（如 `/api/auth/me`）；再以預設一般使用者登入，確認 `basicPermissionNames` 只有 `*.read`、檢視端點（如 `GET /api/basicusers`）回 200、寫入端點（如 `POST /api/basicusers` 送空物件）回 403（授權在模型驗證前攔截，不會寫入資料）。
+  - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `BasicLoginErrlog`）、新增／編輯／刪除資料、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
   - 不以 `sqlcmd` 或其他方式異動資料庫資料；若不慎寫入，視為破壞性動作的紅燈，停下詢問。
-- 已執行發佈腳本時，以 `dotnet <publish 絕對路徑>\backend.dll --environment Production --contentRoot <publish 絕對路徑> --urls http://localhost:<port>` 啟動發佈結果（須指定 `--contentRoot`，否則找不到 `appsettings.json` 與 `wwwroot`），確認 `/swagger` 與不存在的檔案路徑（如 `/missing.js`）回 404、`index.html` 與 SPA fallback 為 `Cache-Control: no-cache`；測試完畢即停止程式。測試指令勿 `cd` 進 `publish/`，否則該目錄被占用，下次發佈無法清除。
-- 執行 `owasp-check` skill 檢查整個專案，將結果附在完成回報中（發現問題直接修正，不另外詢問；涉及第 2 節紅燈條件時才詢問）。
-- 回報時明確列出：已完成項目、未執行的步驟與原因、預設管理員帳號，產生加密值的指令，以及「尚未 commit，請確認後自行 commit」。
+- 執行 `owasp-check` skill 檢查整個專案，將結果附在完成回報中（發現問題直接修正，不另外詢問；涉及第 2 節紅燈條件時才詢問）。修正後重新 `dotnet build` 確認成功。
+
+## 5. 發佈（第 21 項為是時）
+
+驗證與 `owasp-check` 完成後執行，讓發佈結果包含所有修正。`publish-project` 設有 `disable-model-invocation`，無法以 Skill 工具呼叫：先以 Read 讀取 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\SKILL.md`，依其流程執行，下列項目依本節調整：
+
+1. **發佈前**（`publish-project` 第 1 節）：
+   - 略過「工作目錄須已 commit」：新專案依第 3 節不 commit，本次發佈僅供驗證，於回報中註明「發佈結果未對應 commit，正式部署前請 commit 後重新發佈」。
+   - `appsettings.json` 檢查只列出結果、不改設定值；`正式網址` 留白時 `App:FrontendUrl` 為 `localhost` 屬預期，列為待辦，不視為紅燈。
+   - `VITE_APP_BASE` 已由佔位符設定，確認為 `/<專案名稱>/`；`owasp-check` 已於第 4 節執行，不重複。
+2. **執行發佈**：先停止第 4 節啟動的所有背景後端（避免輸出目錄被鎖住），以 `powershell -NoProfile -File "<專案目錄>\publish.ps1" -SkipNpmInstall` 執行（第 3 節已 `npm ci`）。失敗時不修改腳本繞過，依 `publish-project` 列出的常見原因排查；排除後仍失敗為紅燈，停下回報錯誤輸出。
+3. **測試發佈結果**：以 `dotnet <publish 絕對路徑>\backend.dll --environment Production --contentRoot <publish 絕對路徑> --urls http://localhost:<port>` 背景啟動（須指定 `--contentRoot`，否則找不到 `appsettings.json` 與 `wwwroot`），確認：
+   - 子路徑首頁（`/` 與 SPA 路由，如 `/login`）回 200 且 `index.html` 為 `Cache-Control: no-cache`，內容的資源路徑使用 `/<專案名稱>/assets/`。
+   - `/swagger` 與不存在的檔案路徑（如 `/missing.js`）回 404。
+   - API 回應含安全標頭、無 `Server` 標頭。
+   - 測試完畢即停止程式。測試指令勿 `cd` 進 `publish/`，否則該目錄被占用，下次發佈無法清除。
+4. **回報**：依 `publish-project` 第 3 節列出輸出目錄、檔案數量、大小、部署子路徑與 IIS 部署提醒（第 19 項為 Kestrel 時改列 Kestrel 提醒）。
+
+## 6. 完成回報
+
+明確列出：已完成項目、未執行的步驟與原因、預設管理員與一般使用者帳號（提醒一般使用者正式上線前停用或變更密碼）、產生加密值的指令、`owasp-check` 結果、發佈結果與部署提醒，以及「尚未 commit，請確認後自行 commit；正式部署前 commit 後重新發佈」。

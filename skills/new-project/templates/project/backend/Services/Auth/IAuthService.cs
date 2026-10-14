@@ -9,5 +9,5 @@ public interface IAuthService
     Task ChangeExpiredPasswordAsync(ChangeExpiredPasswordRequest request);
     Task ForgotPasswordAsync(ForgotPasswordRequest request);
     Task ResetPasswordAsync(ResetPasswordRequest request);
-    Task<CurrentUserResult> GetCurrentUserAsync(int userId);
+    Task<CurrentBasicUserResult> GetCurrentBasicUserAsync(int basicUserId);
 }

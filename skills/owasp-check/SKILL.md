@@ -33,7 +33,7 @@ cd <backend> && dotnet list package --vulnerable --include-transitive
 | 注入 | `Process.Start\|Path.Combine` 搭配使用者輸入 | 指令／路徑注入 |
 | 加密 | `new Random\(\|Random.Shared` | 是否用於安全用途 |
 | 加密 | `appsettings*.json` 中的 `Password\|Key\|Secret\|pwd\|ConnectionStrings` | 連線字串、`Jwt:Key`、`Mail:Password` 須為 AES 加密值（含 `Password=` 或可直接讀出即為明文）；`AES256Key` 不可與其他專案相同 |
-| 身分驗證 | 種子資料（`HasData`）中的預設管理員 | 只存雜湊、不含明文密碼，且有對應的 `_Pwd_log`（建立日期為建立專案當日；首次登入不強制變更） |
+| 身分驗證 | 種子資料（`HasData`）中的預設管理員與預設一般使用者 | 只存雜湊、不含明文密碼，且有對應的 `BasicPwdlog`（建立日期為建立專案當日；首次登入不強制變更）；一般使用者只屬訪客群組、僅有 `*.read` 權限。一般使用者初始密碼為已知值，正式環境仍啟用且未變更密碼時列為待辦（專案 CLAUDE.md 已記錄） |
 | 存取控制 | `AllowAnyOrigin\|WithOrigins` | CORS 範圍 |
 | 存取控制 | `\[AllowAnonymous\]` | 逐一確認確實需要開放 |
 | 存取控制 | Controller 缺少 `[Authorize(Policy` 的寫入端點 | 權限是否足夠 |
@@ -57,7 +57,7 @@ cd <backend> && dotnet list package --vulnerable --include-transitive
 
 - 身分驗證：驗證碼是否後端比對且一次性、登入限流與鎖定、錯誤訊息是否透露帳號存在；並逐條對照 `auth-baseline.md`（鎖定、密碼規則與統一方法、逾期變更、忘記密碼、前端登入狀態）。
 - 存取控制：Service 層是否檢查資料層級權限（越權、提權、對自己的危險操作）。
-- 記錄：安全事件是否記錄；Log 是否含密碼、Token、重設連結、個資。
+- 記錄：安全事件是否記錄；Log 是否含密碼、Token、重設連結、個資；未處理例外與背景作業失敗是否寫入 `BasicExceptionlog`（另建 DbContext、寫入失敗不丟例外），轉存檔名是否移除不合法字元、`Logs\` 是否不在 `wwwroot` 下；新增、修改、刪除是否寫入 `BasicSyslog`（無同步 `SaveChanges`、無繞過攔截器的 `ExecuteUpdate`／`ExecuteDelete` 業務異動），新增的機密欄位是否已列入 `BasicSyslogInterceptor.IgnoredProperties`。
 - 例外：是否統一由全域處理、不洩漏 StackTrace。
 
 ## 4. 報告格式

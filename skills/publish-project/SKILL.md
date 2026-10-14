@@ -13,6 +13,7 @@ disable-model-invocation: true
 ## 1. 發佈前
 
 1. **工作目錄須已 commit：** 先執行 `git status`。有未 commit 的變更時，停下來詢問使用者是否先 commit，不可直接發佈（發佈結果要能對應到確切的 commit）。
+   - 例外：`new-project` 建立完成後依本流程發佈一次僅供驗證（新專案尚未 commit），由 `new-project` 第 5 節說明略過此項；正式部署前仍須 commit 後重新發佈。
 2. **檢查後端 `appsettings.json`（輸出會包含此檔）：** 只列出問題請使用者確認，**不自行改動設定值**。
    - 機密（連線字串、JWT 金鑰、SMTP 密碼）須為 AES-256 加密值，不可為明文或僅 Base64 編碼；JWT 金鑰不可為範例值。
    - `AES256Key`、`AES256IV` 須為本專案自己的值，不可沿用其他專案。
@@ -50,7 +51,8 @@ disable-model-invocation: true
 
 - IIS 伺服器須安裝與專案相同主版本的 **ASP.NET Core Hosting Bundle**（.NET 10 專案須安裝 10.x）。
 - 部署為 IIS 子應用程式時，名稱須與 `VITE_APP_BASE` 一致。
-- **先清空 IIS 目錄再複製**，避免殘留舊 assets。若正式環境保留自己的 `appsettings.json`，清空前先備份，複製後還原。
+- **先清空 IIS 目錄再複製**，避免殘留舊 assets；**保留 `Logs\` 目錄**（系統錯誤紀錄轉存檔）。若正式環境保留自己的 `appsettings.json`，清空前先備份，複製後還原。
+- 應用程式集區帳號須有網站目錄 `Logs\` 的寫入權限（系統錯誤紀錄每日轉存）。
 - 應用程式集區的 `ASPNETCORE_ENVIRONMENT` 須為 `Production`（Swagger 關閉、啟用 HSTS 與 HTTPS 導向）。
 - 有 HTTPS 繫結時 HTTP 會自動導向 HTTPS；正式環境應設定 HTTPS 繫結。
 - IIS 加上的 `Server`、`X-Powered-By` 標頭由 `web.config` 移除（`removeServerHeader` 須 **IIS 10 以上**）。若出現 HTTP 500.19，代表 IIS 版本過舊或伺服器鎖定了 `requestFiltering`／`httpProtocol` 區段，須改由 IIS 端處理。

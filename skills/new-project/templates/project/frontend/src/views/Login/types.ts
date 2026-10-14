@@ -1,10 +1,10 @@
 /** 目前登入者 */
-export interface CurrentUser {
+export interface CurrentBasicUser {
   id: number
   username: string
   displayName: string
   email: string
-  permissions: string[]
+  basicPermissionNames: string[]
 }
 
 export interface LoginRequest {
@@ -20,7 +20,7 @@ export interface LoginResult {
   changeToken: string | null
   token: string
   expiresAt: string
-  user: CurrentUser
+  basicUser: CurrentBasicUser
 }
 
 export interface Captcha {
