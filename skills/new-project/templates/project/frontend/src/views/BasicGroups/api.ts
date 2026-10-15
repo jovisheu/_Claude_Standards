@@ -1,5 +1,6 @@
 import http from '@/api/http'
 import type { ApiResponse, PagedQuery } from '@/types/api'
+import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import type { BasicGroupDetail, BasicGroupFormData, BasicGroupListItem, BasicPermissionItem } from './types'
 
 export async function getBasicGroups(query: PagedQuery) {
@@ -9,6 +10,11 @@ export async function getBasicGroups(query: PagedQuery) {
 
 export async function getBasicGroup(id: number) {
   const { data } = await http.get<ApiResponse<BasicGroupDetail>>(`/basicgroups/${id}`)
+  return data.datas!
+}
+
+export async function getBasicGroupBasicSyslogs(id: number) {
+  const { data } = await http.get<ApiResponse<BasicSyslogHistoryResult>>(`/basicgroups/${id}/basicsyslogs`)
   return data.datas!
 }
 

@@ -33,11 +33,13 @@
 * 範本不含 `bin/`、`obj/`、`node_modules/`、`dist/`、`wwwroot/`、`publish/`、`Data/Migrations/`（Migration 於建立專案時產生）。
 * 新增佔位符時，同步更新 `new-project` SKILL.md 第 3 節的佔位符表。
 * 修改範本後，複製到 scratchpad、以測試值替換佔位符，確認 `dotnet build`、`npm ci`、`npm run build` 成功，再實際啟動檢查回應格式。
+* 範本根目錄的 `dotnet-tools.json` 鎖定 CycloneDX 工具版本（`publish.ps1` 產生 SBOM 用），作為無法連線 NuGet 時的預設值；`new-project` 建立專案時會改選發佈滿 14 天的最新穩定版並鎖定於該專案。升級範本時以 `dotnet tool update CycloneDX --version <版本> --tool-manifest <範本>\dotnet-tools.json` 更新（同樣須發佈滿 14 天），並重新驗證發佈。
 * 套件版本固定在範本的 `backend.csproj` 與 `frontend/package-lock.json`；定期以 `dotnet list package --vulnerable`、`npm audit` 檢查，升級後重新驗證範本。`keygen.csproj` 的 BCrypt 版本須與 `backend.csproj` 一致。
 * 規範（`CLAUDE.md`、`references/`）變更時，同步檢查範本是否仍符合。
 
 ## 目前共用 Skill
 
 * `new-project`：預設複製新專案範本並替換佔位符建立新專案；`使用範本` 填「否」時依規範重新產生。設定取自 `_Project_Info/` 與預設值，採紅綠燈判斷：全部綠燈直接建立不詢問，只有紅燈項目（環境缺漏、目錄不為空、資料庫有既有資料表、建置失敗等，見 Skill 第 2 節）才詢問；驗證與 `owasp-check` 後依 `publish-project` 流程發佈一次並測試發佈結果（略過 commit 檢查）；完成後不 commit，只提醒。
+* `add-feature`：在既有專案新增業務功能（資料表、權限、後端 API、前端管理頁面、Migration），比照範本的使用者管理實作；紅綠燈判斷同 `new-project`，完成後以不寫入資料的請求驗證並執行 `owasp-check`，不 commit、不發佈。`new-project` 建立時的業務功能（第 23 項）同樣依此 skill 第 2 節建立。
 * `publish-project`：發佈專案並整理部署檢查清單（只在使用者明確要求時執行；設有 `disable-model-invocation`，`new-project` 以讀取其 SKILL.md 的方式沿用流程）。
 * `owasp-check`：依通用規範的資安規範與 `references/auth-baseline.md` 檢查專案。

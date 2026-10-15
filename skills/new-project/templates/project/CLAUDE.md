@@ -35,7 +35,7 @@ npm run dev --prefix frontend
 
 ## 資料庫
 
-- MSSQL `__DB_SERVER__` / `__DB_NAME__`，__DB_AUTH__。
+- MSSQL `__DB_SERVER__` / `__DB_NAME__`，__DB_AUTH__。以 SQL Server 2019（相容性層級 150）為基準，EF Core 設定 `UseCompatibilityLevel(150)`，原生 SQL 不得使用 2022 以後的語法。
 - 新增 Migration：`dotnet ef migrations add <名稱> --project backend --output-dir Data/Migrations`
 - 套用：`dotnet ef database update --project backend`
 - 建立資料表或新增欄位時，須同時在 `AppDbContext` 以 `HasComment` 加上資料表描述與每個欄位的描述（原生 SQL 建表則以 `sp_addextendedproperty` 寫入 `MS_Description`），規則見 `_Claude_Standards/CLAUDE.md`。
@@ -55,7 +55,7 @@ npm run dev --prefix frontend
 - **前端網址**：`App:FrontendUrl` 用於組成重設密碼連結（含部署子路徑）。Production 為 `__FRONTEND_URL__`，Development 覆寫為 `http://localhost:5173`；正式網址確定後修改 `appsettings.json`。
 - **SMTP**：`Smtp:Enabled = false` 時郵件改寫入 `backend/MailPickup/`（已排除於版控）。
 - **系統錯誤紀錄**：未處理例外與郵件寄送失敗寫入 `BasicExceptionlog`；超過 `BasicExceptionlog:RetentionDays`（30 天）的紀錄每天轉存至 `backend/Logs/Exception/YYYY/MM/DD/{MethodName}.txt` 後刪除（已排除於版控）。IIS 應用程式集區帳號須有網站目錄 `Logs\` 的寫入權限，部署時保留該目錄。
-- **系統異動歷程**：新增、修改、刪除由 `Data/BasicSyslogInterceptor.cs` 自動寫入 `BasicSyslog`（異動須用 `SaveChangesAsync`；新增含機密欄位的資料表時加入 `IgnoredProperties`）；寫入前將超過 `BasicSyslog:RetentionDays`（30 天）的紀錄轉存至 `backend/Logs/Syslog/YYYY/MM/DD/{MethodName}.txt` 後刪除。
+- **系統異動歷程**：新增、修改、刪除由 `Data/BasicSyslogInterceptor.cs` 自動寫入 `BasicSyslog`（異動須用 `SaveChangesAsync`；新增含機密欄位的資料表時加入 `IgnoredProperties`）；寫入前將超過 `BasicSyslog:RetentionDays`（30 天）的紀錄轉存至 `backend/Logs/Syslog/YYYY/MM/DD/{MethodName}.txt` 後刪除。列表的「歷程」按鈕呼叫 `GET /api/{功能}/{id}/basicsyslogs`（需 `update` 權限），由 `Services/BasicSyslogs/BasicSyslogHistoryService` 以 `OPENJSON` 查詢，前端以 `components/BasicSyslogModal.vue` 顯示。
 - **驗證碼**：後端以 SkiaSharp 產生 PNG，答案存於 MemoryCache（一次性、限時）。多台伺服器部署時須改用分散式快取。
 - **逾期變更憑證**同樣存於 MemoryCache；應用程式重啟後失效，使用者重新登入即可。
 - **前端 `.env`**：只放非機密設定，內容須維持純 ASCII（不加中文註解），否則 Windows PowerShell 5.1 讀取時會亂碼，發佈腳本讀不到 `VITE_APP_BASE`。個人設定放 `.env.local`。
@@ -64,7 +64,7 @@ npm run dev --prefix frontend
 ## 部署
 
 - __DEPLOY_DESCRIPTION__，部署子路徑 `/__PROJECT_NAME__/`，前後端同源（SPA 由後端 `wwwroot` 提供，不開 CORS）。
-- 發佈流程使用 `/publish-project`（執行 `publish.ps1`：前端打包 → 複製至 `backend/wwwroot` → `dotnet publish` 至 `publish/`）。
+- 發佈流程使用 `/publish-project`（執行 `publish.ps1`：弱點檢查（High、Critical 即停止）→ 前端打包 → 複製至 `backend/wwwroot` → `dotnet publish` 至 `publish/` → 產生 CycloneDX SBOM 至 `sbom/yyyy/MM/dd/<HHmmss>_<commit>_*.cdx.json`）。CycloneDX 工具版本鎖定於 `dotnet-tools.json`；上線前須另以 SBOM 掃描工具掃描該次 SBOM。
 - `backend/web.config` 移除 `Server`、`X-Powered-By` 標頭；正式環境須於 IIS 綁定 HTTPS。
 
 ## 待辦
@@ -72,4 +72,4 @@ npm run dev --prefix frontend
 - [ ] 確定正式網址後更新 `App:FrontendUrl`。
 - [ ] 正式環境 IIS 綁定 HTTPS 憑證。
 - [ ] 正式上線前停用預設一般使用者 `__GUEST_USERNAME__` 或變更其密碼（初始密碼為已知值）。
-- [ ] 依需求新增業務功能（Controller／Service／DTO／Model 與前端功能資料夾，並新增對應權限種子）。
+- [ ] 依需求新增業務功能：使用 `/add-feature`（資料表、權限、後端 API、前端頁面與 Migration）。

@@ -9,6 +9,7 @@ public class BasicGroup
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 
     public ICollection<BasicUserGroup> BasicUserGroup { get; set; } = new List<BasicUserGroup>();
     public ICollection<BasicGroupPermission> BasicGroupPermission { get; set; } = new List<BasicGroupPermission>();

@@ -2,10 +2,21 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { isHandled } from '@/api/http'
 import AppPagination from '@/components/AppPagination.vue'
+import BasicSyslogModal from '@/components/BasicSyslogModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
+import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
+import { formatModifiedAt } from '@/utils/format'
 import BasicGroupFormModal from './components/BasicGroupFormModal.vue'
-import { createBasicGroup, deleteBasicGroup, getBasicGroup, getBasicGroups, getBasicPermissions, updateBasicGroup } from './api'
+import {
+  createBasicGroup,
+  deleteBasicGroup,
+  getBasicGroup,
+  getBasicGroupBasicSyslogs,
+  getBasicGroups,
+  getBasicPermissions,
+  updateBasicGroup,
+} from './api'
 import type { BasicGroupDetail, BasicGroupFormData, BasicGroupListItem, BasicPermissionItem } from './types'
 
 const auth = useAuthStore()
@@ -25,6 +36,11 @@ const modalOpen = ref(false)
 const editingItem = ref<BasicGroupDetail | null>(null)
 const basicPermissions = ref<BasicPermissionItem[]>([])
 const submitting = ref(false)
+
+const historyOpen = ref(false)
+const historyTitle = ref('')
+const historyResult = ref<BasicSyslogHistoryResult | null>(null)
+const historyLoading = ref(false)
 
 async function load() {
   loading.value = true
@@ -98,6 +114,21 @@ async function remove(item: BasicGroupListItem) {
   }
 }
 
+async function openHistory(item: BasicGroupListItem) {
+  historyTitle.value = `異動歷程：${item.name}`
+  historyResult.value = null
+  historyLoading.value = true
+  historyOpen.value = true
+  try {
+    historyResult.value = await getBasicGroupBasicSyslogs(item.id)
+  } catch (error) {
+    historyOpen.value = false
+    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+  } finally {
+    historyLoading.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -122,15 +153,16 @@ onMounted(load)
               <th>說明</th>
               <th class="text-right">成員數</th>
               <th class="text-right">權限數</th>
+              <th>異動時間</th>
               <th v-if="canUpdate || canDelete" class="text-right">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-gray-100">
             <tr v-if="loading">
-              <td colspan="5" class="py-8 text-center text-gray-400">載入中…</td>
+              <td colspan="6" class="py-8 text-center text-gray-400">載入中…</td>
             </tr>
             <tr v-else-if="items.length === 0">
-              <td colspan="5" class="py-8 text-center text-gray-400">查無資料</td>
+              <td colspan="6" class="py-8 text-center text-gray-400">查無資料</td>
             </tr>
             <tr v-for="item in items" v-else :key="item.id" class="hover:bg-gray-50">
               <td class="font-medium whitespace-nowrap">
@@ -140,8 +172,10 @@ onMounted(load)
               <td>{{ item.description }}</td>
               <td class="text-right">{{ item.basicUserCount }}</td>
               <td class="text-right">{{ item.basicPermissionCount }}</td>
+              <td class="whitespace-nowrap">{{ formatModifiedAt(item) }}</td>
               <td v-if="canUpdate || canDelete" class="text-right whitespace-nowrap">
                 <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openEdit(item.id)">編輯</button>
+                <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openHistory(item)">歷程</button>
                 <button
                   v-if="canDelete && !item.isProtected"
                   type="button"
@@ -159,5 +193,7 @@ onMounted(load)
     </div>
 
     <BasicGroupFormModal v-model="modalOpen" :item="editingItem" :basic-permissions="basicPermissions" :submitting="submitting" @submit="save" />
+
+    <BasicSyslogModal v-model="historyOpen" :title="historyTitle" :result="historyResult" :loading="historyLoading" />
   </div>
 </template>

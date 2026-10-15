@@ -37,7 +37,8 @@ public class BasicGroupsService(
                 BasicUserCount = g.BasicUserGroup.Count,
                 BasicPermissionCount = g.BasicGroupPermission.Count,
                 IsProtected = g.Id == SeedData.AdminBasicGroupId,
-                CreatedAt = g.CreatedAt
+                CreatedAt = g.CreatedAt,
+                UpdatedAt = g.UpdatedAt
             })
             .ToListAsync();
 
@@ -55,7 +56,8 @@ public class BasicGroupsService(
                 Description = g.Description,
                 IsProtected = g.Id == SeedData.AdminBasicGroupId,
                 BasicPermissionIds = g.BasicGroupPermission.Select(gp => gp.BasicPermissionId).ToList(),
-                CreatedAt = g.CreatedAt
+                CreatedAt = g.CreatedAt,
+                UpdatedAt = g.UpdatedAt
             })
             .FirstOrDefaultAsync()
             ?? throw new BusinessException(NotFoundMessage, StatusCodes.Status404NotFound);
@@ -135,6 +137,7 @@ public class BasicGroupsService(
 
         basicGroup.Name = name;
         basicGroup.Description = NormalizeDescription(request.Description);
+        basicGroup.UpdatedAt = DateTime.Now;
 
         await db.SaveChangesAsync();
         logger.LogInformation("編輯群組：{BasicGroupId}，操作者：{OperatorId}", id, operatorId);

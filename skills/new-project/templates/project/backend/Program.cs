@@ -63,7 +63,8 @@ var securitySettings = builder.Configuration.GetSection(SecuritySettings.Section
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<BasicSyslogInterceptor>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
-    .UseSqlServer(connectionString)
+    // 以 SQL Server 2019（相容性層級 150）為基準，避免 EF Core 產生 2019 不支援的語法
+    .UseSqlServer(connectionString, o => o.UseCompatibilityLevel(150))
     .AddInterceptors(sp.GetRequiredService<BasicSyslogInterceptor>()));
 builder.Services.AddMemoryCache();
 
@@ -73,6 +74,7 @@ builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IBasicUsersService, BasicUsersService>();
 builder.Services.AddScoped<IBasicGroupsService, BasicGroupsService>();
+builder.Services.AddScoped<IBasicSyslogHistoryService, BasicSyslogHistoryService>();
 builder.Services.AddSingleton<ICaptchaService, CaptchaService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
 builder.Services.AddSingleton<MailTemplateStore>();
@@ -100,7 +102,9 @@ builder.Services.AddControllers(options =>
     messages.SetValueIsInvalidAccessor(_ => "欄位格式不正確");
     messages.SetValueMustBeANumberAccessor(_ => "欄位須為數字");
     messages.SetValueMustNotBeNullAccessor(_ => "欄位不可為空白");
-});
+})
+// 回傳時間不含毫秒與時區
+.AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new LocalDateTimeJsonConverter()));
 builder.Services.Configure<ApiBehaviorOptions>(options =>
 {
     options.InvalidModelStateResponseFactory = ModelValidationResponse.Create;

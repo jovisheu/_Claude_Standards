@@ -1,7 +1,10 @@
 using backend.Data;
 using backend.DTOs;
+using backend.DTOs.BasicSyslogs;
 using backend.DTOs.BasicUsers;
 using backend.Extensions;
+using backend.Models;
+using backend.Services.BasicSyslogs;
 using backend.Services.BasicUsers;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -11,7 +14,7 @@ namespace backend.Controllers.BasicUsers;
 [ApiController]
 [Route("api/basicusers")]
 [Authorize]
-public class BasicUsersController(IBasicUsersService basicUsersService) : ControllerBase
+public class BasicUsersController(IBasicUsersService basicUsersService, IBasicSyslogHistoryService basicSyslogHistoryService) : ControllerBase
 {
     [HttpGet]
     [Authorize(Policy = BasicPermissionNames.BasicUserRead)]
@@ -28,6 +31,13 @@ public class BasicUsersController(IBasicUsersService basicUsersService) : Contro
     [Authorize(Policy = BasicPermissionNames.BasicUserRead)]
     public async Task<ApiResponse<List<BasicGroupOption>>> GetBasicGroupOptions()
         => ApiResponse<List<BasicGroupOption>>.Ok(await basicUsersService.GetBasicGroupOptionsAsync(User.GetBasicUserId()));
+
+    /// <summary>異動歷程（含使用者與群組的關聯；需編輯權限）</summary>
+    [HttpGet("{id:int}/basicsyslogs")]
+    [Authorize(Policy = BasicPermissionNames.BasicUserUpdate)]
+    public async Task<ApiResponse<BasicSyslogHistoryResult>> GetBasicSyslogs(int id)
+        => ApiResponse<BasicSyslogHistoryResult>.Ok(
+            await basicSyslogHistoryService.GetRecordHistoryAsync(nameof(BasicUser), id, nameof(BasicUserGroup)));
 
     [HttpPost]
     [Authorize(Policy = BasicPermissionNames.BasicUserCreate)]

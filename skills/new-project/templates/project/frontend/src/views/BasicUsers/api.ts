@@ -1,5 +1,6 @@
 import http from '@/api/http'
 import type { ApiResponse, PagedQuery } from '@/types/api'
+import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import type { BasicGroupOption, BasicUserDetail, BasicUserFormData, BasicUserListItem } from './types'
 
 export async function getBasicUsers(query: PagedQuery) {
@@ -9,6 +10,11 @@ export async function getBasicUsers(query: PagedQuery) {
 
 export async function getBasicUser(id: number) {
   const { data } = await http.get<ApiResponse<BasicUserDetail>>(`/basicusers/${id}`)
+  return data.datas!
+}
+
+export async function getBasicUserBasicSyslogs(id: number) {
+  const { data } = await http.get<ApiResponse<BasicSyslogHistoryResult>>(`/basicusers/${id}/basicsyslogs`)
   return data.datas!
 }
 

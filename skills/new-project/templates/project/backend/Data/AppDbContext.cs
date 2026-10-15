@@ -50,6 +50,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Name).HasMaxLength(50).IsRequired().HasComment("群組名稱");
             e.Property(x => x.Description).HasMaxLength(200).HasComment("群組說明");
             e.Property(x => x.CreatedAt).HasComment("建立時間");
+            e.Property(x => x.UpdatedAt).HasComment("最後修改時間");
             e.HasIndex(x => x.Name).IsUnique();
             e.HasData(SeedData.BasicGroup);
         });

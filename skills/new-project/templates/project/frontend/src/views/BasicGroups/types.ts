@@ -6,6 +6,7 @@ export interface BasicGroupListItem {
   basicPermissionCount: number
   isProtected: boolean
   createdAt: string
+  updatedAt: string | null
 }
 
 export interface BasicGroupDetail {
@@ -15,6 +16,7 @@ export interface BasicGroupDetail {
   isProtected: boolean
   basicPermissionIds: number[]
   createdAt: string
+  updatedAt: string | null
 }
 
 export interface BasicPermissionItem {

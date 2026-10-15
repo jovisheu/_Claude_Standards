@@ -5,6 +5,14 @@ description: 依 OWASP Top 10 最新版與 Fortify 規範，檢查 .NET + Vue �
 
 # OWASP 資安檢查
 
+## 用途
+
+- **做什麼**：依 OWASP Top 10 最新版與通用規範的「資安防禦規範」，以套件弱點掃描、程式碼樣式搜尋、執行中的回應標頭檢查與人工檢視，逐類判斷專案是否符合，產出「符合／不符合／待辦／不適用」報告與修正建議；同時確認供應鏈卡控與 SBOM 步驟仍在。
+- **何時使用**：發佈前；完成涉及驗證、權限、輸入處理的功能後；`/new-project`、`/add-feature` 完成時會自動執行；或使用者要求資安檢查時。
+- **不適用**：取代正式的弱點掃描或滲透測試（如 Fortify、SBOM 掃描工具），本 skill 只做規範層面的檢查；無法檢查正式環境的 IIS 設定。
+- **使用方式**：`/owasp-check`（未指定範圍時，有未 commit 變更就檢查變更，否則檢查整個專案）；也可指定範圍，如 `/owasp-check backend/Services/Bulletins`。
+- **產出**：十個類別的檢查報告（不符合項目依嚴重度排序，附檔案位置與修正方式）。單獨執行時只報告不修改；由 `/new-project`、`/add-feature` 呼叫時依其規定直接修正。
+
 規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 的「資安防禦規範」，以及 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`（身分驗證類別的細節）。先讀這兩處，再依下列步驟逐類檢查。
 
 - 依 OWASP Top 10 最新版，規範中的類別不標註編號（A01、A02⋯），因各版編號不同；報告與對照 Fortify 時以官方最新版編號為準。
@@ -21,6 +29,8 @@ description: 依 OWASP Top 10 最新版與 Fortify 規範，檢查 .NET + Vue �
 cd <frontend> && npm audit
 cd <backend> && dotnet list package --vulnerable --include-transitive
 ```
+
+並確認供應鏈卡控仍在（缺少時列為不符合）：`publish.ps1` 含 `npm audit --audit-level=high` 與 High／Critical 的 dotnet 弱點檢查、產生 SBOM 的步驟；專案根目錄 `dotnet-tools.json` 鎖定 CycloneDX 工具版本；`.gitignore` 含 `sbom/`，且 `wwwroot/`、`publish/` 內沒有 SBOM 檔。內建檢查有 High 以下（Moderate、Low）的弱點時列為待辦，並提醒上線前另以 SBOM 掃描工具掃描。
 
 以 Grep 搜尋下列樣式（排除 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、`wwwroot/`），每筆命中都要讀上下文判斷是否真的有問題：
 

@@ -3,8 +3,15 @@ name: new-project
 description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專案。在使用者要求建立新專案、初始化專案骨架時使用；設定取自 _Project_Info 與預設值，全部綠燈時直接建立不詢問，只有紅燈項目才詢問。
 ---
 
-
 # 建立新專案
+
+## 用途
+
+- **做什麼**：依通用規範建立一個可直接登入使用的 .NET 10 + Vue 3 後台專案骨架：登入／登出、忘記密碼、逾期變更密碼、使用者管理、群組與權限管理、異動歷程、系統錯誤紀錄、資安設定與發佈腳本；建好後建表、驗證、執行 `owasp-check` 並發佈一次。
+- **何時使用**：開始一個新系統時。先填好 `_Project_Info\Project_Info.txt`（專案名稱、用途必填）。
+- **不適用**：已存在的專案（新增功能用 `/add-feature`、發佈用 `/publish-project`）；目標目錄已有檔案或目標資料庫已有資料表時會停下詢問，不覆蓋。
+- **使用方式**：`/new-project`（設定全部取自 `_Project_Info` 與預設值；全部綠燈時不詢問直接建立）。
+- **產出**：`<存放路徑>\<專案名稱>\`（`backend/`、`frontend/`、`publish.ps1`、`dotnet-tools.json`、專案 `CLAUDE.md`）、已建表的資料庫、`publish/` 發佈結果與完成回報；git 已初始化但**不 commit**。
 
 規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）。先完整讀過兩個檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式。
 
@@ -36,7 +43,7 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 dotnet --list-sdks   # 須有 10.x
 node -v; npm -v
 git --version
-sqlcmd -?            # 選用，用於確認資料庫連線
+sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SERVERPROPERTY('ProductVersion')，須 15 以上，即 SQL Server 2019 以上）
 ```
 
 同時確認目標目錄（第 3 項的 `<存放路徑>\<專案名稱>`）不存在或為空；不為空時為紅燈（列出內容），不覆蓋既有檔案。
@@ -54,7 +61,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | 環境 | 缺 .NET 10 SDK、node 或 git |
 | 目標目錄（第 3 項） | `存放路徑` 不是絕對路徑、磁碟機不存在，或目標目錄已存在且不為空 |
 | 專案名稱（第 1 項） | `Project_Info.txt` 不存在、`專案名稱` 空白，或不可作為識別字（含空白、特殊字元、以數字開頭） |
-| 資料庫（第 5～8 項） | `DB_DefaultConnection.txt` 不存在、連線測試失敗，或目標資料庫已存在且含資料表 |
+| 資料庫（第 5～8 項） | `DB_DefaultConnection.txt` 不存在、連線測試失敗、SQL Server 版本低於 2019（`ProductVersion` 主版本小於 15），或目標資料庫已存在且含資料表 |
 | 業務功能（第 23 項） | 有填，但無法判斷資料表欄位、型別或關聯 |
 | 部署（第 19、20 項） | `部署方式` 不是 IIS／Kestrel，或指定前後端分開部署卻未提供來源白名單 |
 | 建立方式（第 25 項） | `使用範本` 不是留白、「是」或「否」；或使用範本但 `templates\project\` 不存在 |
@@ -80,7 +87,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | 資料表 | 主要欄位 | 說明 |
 | --- | --- | --- |
 | `BasicUser` | Id、Username（唯一）、Email（唯一）、PasswordHash、DisplayName、IsActive、CreatedAt、UpdatedAt、PasswordResetTokenHash、PasswordResetExpiresAt | 使用者 |
-| `BasicGroup` | Id、Name（唯一）、Description、CreatedAt | 群組（角色） |
+| `BasicGroup` | Id、Name（唯一）、Description、CreatedAt、UpdatedAt | 群組（角色） |
 | `BasicPermission` | Id、Name（唯一）、Description、Module | 權限，以靜態種子建立 |
 | `BasicUserGroup` | BasicUserId + BasicGroupId（複合主鍵） | 使用者與群組多對多 |
 | `BasicGroupPermission` | BasicGroupId + BasicPermissionId（複合主鍵） | 群組與權限多對多 |
@@ -90,7 +97,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 | `BasicSyslog` | Id、Action（C／U／D）、MethodName、BeforeData（JSON 陣列）、AfterData（JSON 陣列）、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統異動歷程（寫入前將超過保留天數的紀錄轉存 txt 後刪除） |
 
 - 種子資料：權限（`basicuser.read`、`basicgroup.update` 等）、受保護的「系統管理員」群組（`Id = 1`，全部權限）、「訪客」群組（`Id = 2`，全部 `*.read` 權限，含業務功能的檢視權限）、第 9 項的預設管理員（`Id = 1`，系統管理員群組）與預設一般使用者（`Id = 2`，訪客群組），以及兩人各一筆初始密碼歷程（建立日期為建立專案當日，首次登入不強制變更密碼）。
-- 第 23 項有業務功能時，另列出該功能的資料表與欄位（含資料表與欄位描述）。
+- 第 23 項有業務功能時，另列出該功能的資料表與欄位（含資料表與欄位描述）；業務資料表一律加上 `CreatedAt`、`UpdatedAt`（規則見通用規範「後端架構與目錄規範」），`Project_Info.txt` 未列也要補上。
 - 所有資料表與欄位建立時一併以 `HasComment` 加上描述（規則見通用規範「後端架構與目錄規範」）；基本資料表的描述以範本 `backend/Data/AppDbContext.cs` 為準。
 - EF Core 另會自動建立 `__EFMigrationsHistory`。
 
@@ -172,11 +179,13 @@ sqlcmd -?            # 選用，用於確認資料庫連線
 5. **主色與 Logo**（第 24 項，留白則略過）：
    - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺。
    - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（`alt` 為系統名稱），保留系統名稱文字。
-6. **業務功能**（第 23 項，留白則略過）：以範本的使用者管理（`BasicUsers`）為樣板，依規範新增：
-   - 後端：`Models/<Entity>/`、`AppDbContext` 的 `DbSet` 與欄位設定（資料表與每個欄位皆以 `HasComment` 加上描述）、`DTOs/<Feature>/`、`Services/<Feature>/`、`Controllers/<Feature>/`；權限加入 `Data/BasicPermissionNames.cs`，並在 `Data/SeedData.cs` 的 `BasicPermission` 往後新增（Id 接續，不改動既有 Id；系統管理員群組自動擁有全部權限，訪客群組自動擁有 `.read` 權限）。
-   - 前端：`src/views/<Feature>/`（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/<Entity>FormModal.vue`），版面、表格、Modal、按鈕樣式比照 `BasicUsers`；在 `src/router/index.ts` 加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）。
-   - 專案 CLAUDE.md 的種子說明更新權限筆數。
+6. **業務功能**（第 23 項，留白則略過）：先讀 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\add-feature\SKILL.md`，依其第 1.1 節整理規格、第 2.1 節（後端）、第 2.2 節（前端）與第 2.4 節（文件）建立，比照範本的使用者管理（`BasicUsers`）。Migration 不另外新增，併入第 8 步的 `InitialCreate`；規格不明的紅燈已於第 2 節判斷，這裡不重複詢問。
 7. **安裝前端套件**：`npm ci --prefix <frontend 絕對路徑>`（依範本的 `package-lock.json` 安裝，不升級版本）。
+   - **SBOM 工具版本**（CycloneDX，發佈腳本產生 SBOM 用）：建立時自動選用「發佈滿 14 天的最新穩定版」並鎖定於專案的 `dotnet-tools.json`，之後不自動切換（發佈腳本只提醒新版）。
+     1. 以 `curl -s https://api.nuget.org/v3-flatcontainer/cyclonedx/index.json` 取得版本清單，排除含 `-` 的預發佈版，由新到舊以 `curl -s https://api.nuget.org/v3/registration5-semver1/cyclonedx/<版本>.json` 讀取 `published`，取第一個早於「今天 - 14 天」的版本。
+     2. 與範本的版本不同時，執行 `dotnet tool update CycloneDX --version <版本> --tool-manifest <專案目錄>\dotnet-tools.json --allow-downgrade`。
+     3. 第 5 節發佈時會實際以此版本產生 SBOM；若該版本無法在本機 .NET SDK 執行，改用前一個符合條件的版本重試 1 次，仍失敗為紅燈。
+     4. 無法連線 NuGet 時沿用範本的版本，於完成回報註明。完成回報列出選用的版本與其發佈日期；選用版本比範本新時，提醒使用者同步更新範本的 `dotnet-tools.json`。
 8. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`（須指定 `--startup-project`，否則目前目錄若為其他 .NET 專案會被當成啟動專案）；確認產生的 Migration 不含明文密碼。建表後以 `sqlcmd` 唯讀查詢 `sys.extended_properties`，確認每張資料表與每個欄位都有 `MS_Description`（`__EFMigrationsHistory` 除外）。
 9. **git**：`git init <專案目錄>`（範本已含 `.gitignore`）；**不 commit**，於完成回報提醒使用者自行 commit。
 

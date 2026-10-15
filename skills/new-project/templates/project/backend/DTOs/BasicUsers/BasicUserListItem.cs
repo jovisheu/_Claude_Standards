@@ -9,4 +9,5 @@ public class BasicUserListItem
     public bool IsActive { get; set; }
     public List<string> BasicGroupNames { get; set; } = [];
     public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

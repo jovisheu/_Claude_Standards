@@ -6,6 +6,7 @@ export interface BasicUserListItem {
   isActive: boolean
   basicGroupNames: string[]
   createdAt: string
+  updatedAt: string | null
 }
 
 export interface BasicUserDetail {

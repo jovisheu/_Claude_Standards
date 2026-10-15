@@ -39,7 +39,8 @@ public class BasicUsersService(
                 DisplayName = u.DisplayName,
                 IsActive = u.IsActive,
                 BasicGroupNames = u.BasicUserGroup.OrderBy(ug => ug.BasicGroupId).Select(ug => ug.BasicGroup.Name).ToList(),
-                CreatedAt = u.CreatedAt
+                CreatedAt = u.CreatedAt,
+                UpdatedAt = u.UpdatedAt
             })
             .ToListAsync();
 

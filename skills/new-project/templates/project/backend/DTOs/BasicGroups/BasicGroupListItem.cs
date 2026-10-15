@@ -9,4 +9,5 @@ public class BasicGroupListItem
     public int BasicPermissionCount { get; set; }
     public bool IsProtected { get; set; }
     public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

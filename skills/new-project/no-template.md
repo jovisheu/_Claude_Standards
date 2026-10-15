@@ -8,7 +8,7 @@
 燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問：
 
 1. **後端**：以 `dotnet new web -o <專案目錄>\backend -n backend` 建立（空白範本，只產生 `backend.csproj`、`Program.cs`、`appsettings*.json`、`Properties/launchSettings.json`，不含範本檔與 OpenApi 套件）；Controller、Swagger 等依規範自行加入，套件以 `dotnet add package` 加入並寫明確版本號（不用浮動版本）；依規範建立 `Controllers/`、`Services/`、`DTOs/`、`Models/`、`Data/`、`Exceptions/`、`Extensions/`。
-   - 資料表：依 SKILL.md 第 2 節「將建立的資料表」，加上第 23 項的業務資料表；資料表與每個欄位以 `HasComment` 加上描述（基本資料表的描述沿用範本 `templates/project/backend/Data/AppDbContext.cs`）。
+   - 資料表：依 SKILL.md 第 2 節「將建立的資料表」，加上第 23 項的業務資料表（業務功能的後端、前端依 `skills\add-feature\SKILL.md` 第 2.1、2.2 節建立；一律含 `CreatedAt`、`UpdatedAt`；列表的異動時間與異動歷程查詢依通用規範，`BasicSyslogHistoryService` 與 `BasicSyslogModal.vue` 可參考範本）；資料表與每個欄位以 `HasComment` 加上描述（基本資料表的描述沿用範本 `templates/project/backend/Data/AppDbContext.cs`）。
    - 種子（皆以 `HasData` 靜態種子，隨 Migration 建表寫入）：權限、受保護的「系統管理員」群組（`Id = 1`）、「訪客」群組（`Id = 2`）、預設管理員、預設一般使用者。
      - 預設管理員：第 9、10 項的管理員帳密，加入系統管理員群組；建立時以 BCrypt 產生雜湊，程式與 Migration 只存雜湊，不出現明文密碼。
      - 預設一般使用者：第 9、10 項的一般使用者帳密（雜湊方式同上），加入訪客群組；訪客群組的權限以 `SeedData.BasicPermission` 中名稱以 `.read` 結尾者產生，新增業務功能權限時自動擁有檢視權限。訪客群組不受保護，可由管理員調整或刪除。
@@ -26,7 +26,7 @@
    - 連線字串、JWT 金鑰、SMTP 密碼：以 AES-256 加密後寫入 `appsettings.json`（SMTP 密碼為空時不解密）。
      - `AES256Key`（32 字元）、`AES256IV`（16 字元）以 `RandomNumberGenerator` 從英數字隨機產生，每個專案各自一組，寫在 `appsettings.json` 頂層。
      - `Extensions/ConfigEncryption.cs`：使用 .NET 內建 `Aes`（CBC、PKCS7），加密值以 Base64 儲存；解密失敗或長度不符時拒絕啟動，錯誤訊息不含原始值。
-     - `Program.cs` 在註冊服務前解密，結果存入區域變數（連線字串直接傳給 `UseSqlServer`，JWT 金鑰以 `PostConfigure<JwtSettings>` 設定）；不寫回 `IConfiguration`，否則 appsettings 重新載入時會還原成加密值。
+     - `Program.cs` 在註冊服務前解密，結果存入區域變數（連線字串直接傳給 `UseSqlServer`，並設定 `o => o.UseCompatibilityLevel(150)`（SQL Server 2019 基準，見通用規範「資料庫版本」）；JWT 金鑰以 `PostConfigure<JwtSettings>` 設定）；不寫回 `IConfiguration`，否則 appsettings 重新載入時會還原成加密值。
      - 提供工具模式 `dotnet run -- encrypt "<明文>"`，讀取輸出目錄的 `appsettings.json` 並印出加密值，用來產生上述加密值，以及之後更換時使用。
      - 連線字串取自 `DB_DefaultConnection.txt`、SMTP 密碼取自 `SendMail_Info.txt` 的明文，以本專案金鑰加密；連線字串未含 `TrustServerCertificate` 時加上 `TrustServerCertificate=True;`（SqlClient 預設加密連線，本機 SQL Server 為自簽憑證）。不可沿用其他專案的加密值（金鑰不同會解密失敗、拒絕啟動），明文不得寫入專案任何檔案或回報內容。
      - JWT 金鑰以 `RandomNumberGenerator` 產生至少 48 位元組；金鑰格式（Base64 或一般字串）須與簽章程式的解碼方式一致。
@@ -42,10 +42,10 @@
    - 移除伺服器標頭：Kestrel 設定 `AddServerHeader = false`；IIS 於 `web.config` 以 `<requestFiltering removeServerHeader="true" />`（須 IIS 10 以上）與 `<customHeaders><remove name="X-Powered-By" /></customHeaders>` 移除 IIS 加上的標頭。
    - `web.config` 的 `aspNetCore` 設定 `processPath=".\backend.exe" arguments=""`（發佈指定 RID 會產生 apphost，若寫 `dotnet` 與 `.\backend.dll`，轉換後會留下多餘參數）。
    - SPA 的 `index.html`（含 fallback）回應 `Cache-Control: no-cache`；assets 檔名含 hash，可正常快取。
-   - 發佈腳本：複製 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\templates\publish.ps1` 至專案根目錄，目錄名稱與第 3 項不同時調整 `-FrontendDir`、`-BackendDir` 預設值；以 `Copy-Item` 複製（範本本身為 UTF-8 with BOM，複製即保留），不用 `[IO.File]::WriteAllText` 等 .NET 呼叫；需調整預設值時以 Edit 工具修改（Edit 會保留原檔的 BOM）。
+   - 發佈腳本：複製 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\publish-project\templates\publish.ps1` 至專案根目錄，目錄名稱與第 3 項不同時調整 `-FrontendDir`、`-BackendDir` 預設值；以 `Copy-Item` 複製（範本本身為 UTF-8 with BOM，複製即保留），不用 `[IO.File]::WriteAllText` 等 .NET 呼叫；需調整預設值時以 Edit 工具修改（Edit 會保留原檔的 BOM）。同時以 `Copy-Item` 複製範本的 `templates\project\dotnet-tools.json` 至專案根目錄（發佈腳本產生 SBOM 用，鎖定 CycloneDX 工具版本），再依 SKILL.md 第 3 節第 7 步「SBOM 工具版本」選用發佈滿 14 天的最新穩定版。
    - 後端 `.csproj` 排除 `publish/**`（避免下次發佈時被當成內容檔再複製一層），並於發佈時排除套件附帶的 `.pdb`（如 `libSkiaSharp.pdb` 約 90 MB）。
    - 部署子路徑（第 19 項）：前端 `.env` 設定 `VITE_APP_BASE`（以 `/` 開頭與結尾，納入版控）；`vite.config.ts` 只在建置時套用為 `base`（開發固定 `/`）；router `createWebHistory(import.meta.env.BASE_URL)`、Axios ``baseURL: `${import.meta.env.BASE_URL}api` ``；後端由 IIS 自動設定 `PathBase`，不需另外處理。
    - 專案 CLAUDE.md 註明發佈流程使用 `/publish-project`。
 4. **專案 CLAUDE.md**：第一行以 `@D:/Jovi/Localhost/_ClaudeCode/_Claude_Standards/CLAUDE.md` 匯入通用規範，再記錄專案用途、目錄、啟動方式、專案特有設定與待辦，並註明「本專案未使用 new-project 範本建立」。
 5. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼，並以 `sqlcmd` 唯讀查詢確認每張資料表與欄位都有 `MS_Description`。
-6. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`MailPickup/`、`Logs/`、`.env.local`）；**不 commit**，於完成回報提醒使用者自行 commit。
+6. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`MailPickup/`、`Logs/`、`.env.local`、`sbom/`）；**不 commit**，於完成回報提醒使用者自行 commit。

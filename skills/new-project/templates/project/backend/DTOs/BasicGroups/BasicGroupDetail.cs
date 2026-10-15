@@ -8,4 +8,5 @@ public class BasicGroupDetail
     public bool IsProtected { get; set; }
     public List<int> BasicPermissionIds { get; set; } = [];
     public DateTime CreatedAt { get; set; }
+    public DateTime? UpdatedAt { get; set; }
 }

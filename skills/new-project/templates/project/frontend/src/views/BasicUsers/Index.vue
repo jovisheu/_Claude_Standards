@@ -2,10 +2,21 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { isHandled } from '@/api/http'
 import AppPagination from '@/components/AppPagination.vue'
+import BasicSyslogModal from '@/components/BasicSyslogModal.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
+import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
+import { formatModifiedAt } from '@/utils/format'
 import BasicUserFormModal from './components/BasicUserFormModal.vue'
-import { createBasicUser, deleteBasicUser, getBasicGroupOptions, getBasicUser, getBasicUsers, updateBasicUser } from './api'
+import {
+  createBasicUser,
+  deleteBasicUser,
+  getBasicGroupOptions,
+  getBasicUser,
+  getBasicUserBasicSyslogs,
+  getBasicUsers,
+  updateBasicUser,
+} from './api'
 import type { BasicGroupOption, BasicUserDetail, BasicUserFormData, BasicUserListItem } from './types'
 
 const auth = useAuthStore()
@@ -25,6 +36,11 @@ const modalOpen = ref(false)
 const editingItem = ref<BasicUserDetail | null>(null)
 const basicGroupOptions = ref<BasicGroupOption[]>([])
 const submitting = ref(false)
+
+const historyOpen = ref(false)
+const historyTitle = ref('')
+const historyResult = ref<BasicSyslogHistoryResult | null>(null)
+const historyLoading = ref(false)
 
 async function load() {
   loading.value = true
@@ -97,8 +113,19 @@ async function remove(item: BasicUserListItem) {
   }
 }
 
-function formatDate(value: string) {
-  return new Date(value).toLocaleString('zh-TW', { hour12: false })
+async function openHistory(item: BasicUserListItem) {
+  historyTitle.value = `異動歷程：${item.displayName}（${item.username}）`
+  historyResult.value = null
+  historyLoading.value = true
+  historyOpen.value = true
+  try {
+    historyResult.value = await getBasicUserBasicSyslogs(item.id)
+  } catch (error) {
+    historyOpen.value = false
+    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+  } finally {
+    historyLoading.value = false
+  }
 }
 
 onMounted(load)
@@ -126,7 +153,7 @@ onMounted(load)
               <th>Email</th>
               <th>群組</th>
               <th>狀態</th>
-              <th>建立時間</th>
+              <th>異動時間</th>
               <th v-if="canUpdate || canDelete" class="text-right">操作</th>
             </tr>
           </thead>
@@ -158,9 +185,10 @@ onMounted(load)
                   {{ item.isActive ? '啟用' : '停用' }}
                 </span>
               </td>
-              <td class="whitespace-nowrap">{{ formatDate(item.createdAt) }}</td>
+              <td class="whitespace-nowrap">{{ formatModifiedAt(item) }}</td>
               <td v-if="canUpdate || canDelete" class="text-right whitespace-nowrap">
                 <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openEdit(item.id)">編輯</button>
+                <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openHistory(item)">歷程</button>
                 <button
                   v-if="canDelete && item.id !== auth.basicUser?.id"
                   type="button"
@@ -185,5 +213,7 @@ onMounted(load)
       :submitting="submitting"
       @submit="save"
     />
+
+    <BasicSyslogModal v-model="historyOpen" :title="historyTitle" :result="historyResult" :loading="historyLoading" />
   </div>
 </template>
