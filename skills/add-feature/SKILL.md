@@ -9,7 +9,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 
 - **做什麼**：在既有專案加入一個完整的資料管理功能：資料表與 Migration、權限種子、後端 Model／DTO／Service／Controller（含異動歷程端點）、前端列表與新增／編輯頁面、路由與選單；完成後驗證並執行 `owasp-check`。
 - **何時使用**：專案需要新的資料表或管理頁面時（如公告、分類、訂單）。專案須由 `/new-project` 建立或符合同樣的結構。
-- **不適用**：修改或刪除既有資料表、欄位或資料（屬破壞性變更，會停下詢問）；登入、密碼等基本功能的調整（直接依通用規範與 `auth-baseline.md` 修改）；非資料管理類的功能（如報表、排程），可參考本 skill 的規則但需另行設計。
+- **不適用**：替既有資料表加欄位（用 `/alter-table`）；修改或刪除既有資料表、欄位或資料（屬破壞性變更，會停下詢問）；登入、密碼等基本功能的調整（直接依通用規範與 `auth-baseline.md` 修改）；非資料管理類的功能（如報表、排程），可參考本 skill 的規則但需另行設計。
 - **使用方式**：`/add-feature <功能名稱>(<欄位> <型別> [必填] [唯一]、...)`，例：`/add-feature 公告(標題 nvarchar(100) 必填、內容 nvarchar(max)、發布日期 date)`；規格不足時只詢問缺少的部分。
 - **產出**：新增的前後端程式與 Migration `Add<Table>`（已套用至開發資料庫）、更新的專案 `CLAUDE.md` 與完成回報；**不 commit、不發佈**，完成後請自行 commit 再 `/publish-project`。
 
@@ -19,7 +19,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 
 ## 0. 指令寫法
 
-同 `new-project` 第 0 節：一次一個指令、使用絕對路徑，不以 `cd ... &&` 串接；讀寫檔用 Read、Grep／Glob、Write、Edit 工具；全程不刪除檔案；`sqlcmd` 只用於唯讀查詢，不異動資料庫資料（第 3 節的寫入實測一律經由 API 進行）。
+一律依 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\command-style.md`；第 3 節的寫入實測一律經由 API 進行。
 
 ## 1. 規格與紅綠燈
 
@@ -48,9 +48,9 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 | 規格 | 無法判斷欄位、型別、長度或關聯 |
 | 名稱 | 資料表、`DbSet`、功能資料夾、API 路徑、權限名稱或前端路由已存在；名稱不可作為識別字；以 `Basic` 開頭 |
 | 關聯 | 外鍵指向的資料表不存在 |
-| 機密欄位 | 含密碼、token、金鑰等欄位（須確認處理方式：雜湊或加密、列入 `IgnoredProperties`、不回傳前端） |
+| 機密欄位 | 含密碼、token、金鑰等欄位（須確認處理方式：雜湊或加密、列入 `MaskedProperties`、不回傳前端） |
 | 既有資料表 | 需求須修改或刪除既有資料表、欄位或資料（破壞性動作） |
-| 新套件 | 需要加入專案尚未使用的 NuGet 或 npm 套件（說明用途、建議的套件與版本、是否有內建或既有套件可替代，取得同意後依第 2.0 節加入） |
+| 新套件 | 需要加入專案尚未使用的 NuGet 或 npm 套件（說明用途、建議的套件與版本、是否有內建或既有套件可替代，取得同意後依 `add-package` skill 加入） |
 | 資料庫 | 無法連線，或版本低於 SQL Server 2019 |
 | Migration | 產生的 Migration 含 `DropTable`、`DropColumn`、`AlterColumn`、`RenameColumn` 或 EF Core 提示可能遺失資料（新增功能不應出現） |
 | 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗 |
@@ -66,20 +66,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 
 ### 2.0 新套件（只在第 1.2 節取得同意後）
 
-優先使用 .NET、Vue 內建功能與專案既有套件；確定需要新套件時：
-
-1. **來源與版本**：只從官方 NuGet／npm 取得；選用「發佈滿 14 天的最新穩定版」（不含預發佈版）。
-   - NuGet：以 `curl -s https://api.nuget.org/v3-flatcontainer/<套件小寫>/index.json` 取得版本清單，再以 `curl -s https://api.nuget.org/v3/registration5-semver1/<套件小寫>/<版本>.json` 讀取 `published`。
-   - npm：以 `npm view <套件> time --json` 取得各版本發佈時間。
-   - 後端套件的主版本須與專案的 .NET 10、EF Core 10 相容。
-2. **加入並鎖定版本**：
-   - 後端：`dotnet add <backend 絕對路徑>\backend.csproj package <套件> --version <版本>`（`.csproj` 為明確版本號，不用浮動版本）。
-   - 前端：`npm install <套件>@<版本> --save-exact --prefix <frontend 絕對路徑>`（`package.json` 為明確版本，`package-lock.json` 一併更新並進版控）；只在建置時使用的工具加 `--save-dev`。
-3. **立即檢查弱點**（與發佈卡控相同標準）：
-   - `dotnet list <backend 絕對路徑>\backend.csproj package --vulnerable --include-transitive`
-   - `npm audit --audit-level=high --prefix <frontend 絕對路徑>`
-   - 新套件或其相依套件有 High 或 Critical 弱點時不採用：改選其他版本或替代套件，再以紅燈詢問；不設例外清單。
-4. 完成回報列出新增的套件、版本、發佈日期與弱點檢查結果。
+讀取 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\add-package\SKILL.md`，依其第 2～4 節選版本、加入並檢查弱點（同意已於第 1.2 節取得）；有 High 或 Critical 弱點時改選其他版本或替代套件，再以紅燈詢問。完成回報列出新增的套件、版本、發佈日期與弱點檢查結果。
 
 ### 2.1 後端
 
@@ -99,15 +86,16 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - 新增或修改前先檢查唯一值，重複時丟 `BusinessException`；外鍵 Id 先確認存在；刪除前確認沒有被其他資料參照，有則丟 `BusinessException` 說明原因。
    - 新增時設 `CreatedAt = DateTime.Now`；修改時**一律**設 `UpdatedAt = DateTime.Now`（含只改關聯表的修改，異動歷程查詢依此找出該筆資料）。
    - 文字欄位 `Trim()`；選填文字為空白時存 `null`。
-   - 主表與關聯表透過導覽屬性一起加入，只呼叫一次 `SaveChangesAsync`（不可用同步 `SaveChanges`，也不可用 `ExecuteUpdate`／`ExecuteDelete` 做業務異動，否則不會留下異動歷程）。
+   - 主表與關聯表透過導覽屬性一起加入，只呼叫一次 `SaveChangesAsync`（不可用同步 `SaveChanges`，也不可用 `ExecuteUpdate`／`ExecuteDelete`／`ExecuteSql` 做異動：不會留下異動歷程，執行時會被 `BasicSyslogCommandGuard` 拒絕）。大量資料同樣載入實體後分批 `SaveChangesAsync`。
    - Log 使用結構化參數（如 `logger.LogInformation("新增公告：{BulletinId}，操作者：{OperatorId}", ...)`），不記錄個資或機密。
    - 需要資料層級權限時（如只能修改自己建立的資料），以 `operatorId` 檢查，無權讀取的資料回「不存在」。
 6. **Controller**（`Controllers/<Feature>/<Feature>Controller.cs`）：
    - `[ApiController]`、`[Route("api/<feature>")]`、`[Authorize]`；每個端點標註 `[Authorize(Policy = BasicPermissionNames.<Table>Read/Create/Update/Delete)]`。
    - 只接收 DTO，回傳 `ApiResponse<T>`；分頁用 `ApiResponse.Paged`；操作者以 `User.GetBasicUserId()` 傳入 Service。
+   - 寫入端點標上異動歷程預設說明：`[BasicSyslogDescription("新增<功能名稱>")]`、`("編輯<功能名稱>")`、`("刪除<功能名稱>")`；規格含審核、狀態變更等需依結果區分的動作時，Service 於 `SaveChangesAsync` 前呼叫 `basicSyslogContext.Describe(...)`（如「審核通過」「退回：<原因代碼>」）。
    - 異動歷程端點：`[HttpGet("{id:int}/basicsyslogs")]`、Policy 為 `<Table>Update`，呼叫 `basicSyslogHistoryService.GetRecordHistoryAsync(nameof(<Table>), id, 關聯表...)`，回傳 `ApiResponse<BasicSyslogHistoryResult>`。
 7. **Program.cs**：`builder.Services.AddScoped<I<Feature>Service, <Feature>Service>();`（加在既有業務服務之後）。
-8. **機密欄位**（有時）：加入 `Data/BasicSyslogInterceptor.cs` 的 `IgnoredProperties`（`"<Table>.<欄位>"`），且不放入任何回傳 DTO。
+8. **機密欄位**（有時）：加入 `Data/BasicSyslogInterceptor.cs` 的 `MaskedProperties`（`"<Table>.<欄位>"`），且不放入任何回傳 DTO。
 
 ### 2.2 前端
 
@@ -116,7 +104,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - `api.ts`：`get<Feature>(query)`、`get<Table>(id)`、`get<Table>BasicSyslogs(id)`（回傳 `BasicSyslogHistoryResult`）、`create<Table>(form)`、`update<Table>(id, form)`、`delete<Table>(id)`。
    - `routes.ts`：path 與 name 為 `<feature>`，`meta: { title: '<功能名稱>', basicPermission: '<table>.read' }`。
    - `components/<Table>FormModal.vue`：新增與編輯共用，`defineModel` 控制開關、`item` prop（`null` 為新增），開啟時重設表單，送出以事件交回 `Index.vue`；前端檢查只為使用體驗，長度上限與後端一致。
-   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限顯示「編輯」「歷程」「刪除」；「歷程」以 `BasicSyslogModal` 顯示；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
+   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見通用規範「UI 慣例」）；「歷程」以 `BasicSyslogModal` 顯示；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
    - 一律以 `{{ }}` 輸出，不使用 `v-html`；站內路徑以 `import.meta.env.BASE_URL` 組成。
 2. `src/router/index.ts` 匯入並加入路由；`src/layouts/menu.ts` 加入選單項目（`basicPermission: '<table>.read'`，首頁卡片同步出現）。
 
@@ -147,7 +135,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
     3. 有唯一欄位時，`POST` 相同值 → 400 與「已存在」訊息；有外鍵時，`POST` 不存在的外鍵 Id → 400。
     4. `PUT {id}` 修改一個欄位 → 200；`GET {id}` 確認已更新且 `updatedAt` 有值。
     5. 以預設一般使用者（訪客）`PUT {id}`、`DELETE {id}` → 403。
-    6. `GET {id}/basicsyslogs` → 有新增（`C`）與修改（`U`）兩筆，修改只列出變動的欄位。
+    6. `GET {id}/basicsyslogs` → 有新增（`C`）與修改（`U`）兩筆，修改只列出變動的欄位，`description` 分別為端點標註的「新增…」「編輯…」。
     7. 有刪除限制時，先建立參照資料確認 `DELETE` 回 400，再刪除參照資料。
     8. `DELETE {id}` → 200；`GET {id}` → 404；`GET {id}/basicsyslogs` 多一筆刪除（`D`）。
   - 清理：測試建立的資料一律經由 API 刪除；中途失敗時同樣先刪除已建立的測試資料再回報。無法刪除時於回報列出殘留資料的資料表與 Id。

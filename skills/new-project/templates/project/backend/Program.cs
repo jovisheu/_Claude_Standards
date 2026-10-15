@@ -59,13 +59,17 @@ builder.Services.PostConfigure<SmtpSettings>(s => s.Password = smtpPassword);
 var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 var securitySettings = builder.Configuration.GetSection(SecuritySettings.SectionName).Get<SecuritySettings>() ?? new SecuritySettings();
 
-// 系統異動歷程：每個 DbContext 掛上一個攔截器，自動記錄新增／修改／刪除
+// 系統異動歷程：每個 DbContext 掛上攔截器自動記錄新增／修改／刪除，
+// 並以把關攔截器拒絕不經 SaveChanges 的資料異動（ExecuteUpdate／ExecuteDelete／原生 SQL）
 builder.Services.AddHttpContextAccessor();
+builder.Services.AddScoped<BasicSyslogSaveTracker>();
+builder.Services.AddScoped<BasicSyslogContext>();
 builder.Services.AddScoped<BasicSyslogInterceptor>();
+builder.Services.AddScoped<BasicSyslogCommandGuard>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
     // 以 SQL Server 2019（相容性層級 150）為基準，避免 EF Core 產生 2019 不支援的語法
     .UseSqlServer(connectionString, o => o.UseCompatibilityLevel(150))
-    .AddInterceptors(sp.GetRequiredService<BasicSyslogInterceptor>()));
+    .AddInterceptors(sp.GetRequiredService<BasicSyslogInterceptor>(), sp.GetRequiredService<BasicSyslogCommandGuard>()));
 builder.Services.AddMemoryCache();
 
 // 服務

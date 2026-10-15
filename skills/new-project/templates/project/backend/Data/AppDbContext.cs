@@ -127,8 +127,9 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.Id).HasComment("流水號");
             e.Property(x => x.Action).HasMaxLength(1).IsFixedLength().IsRequired().HasComment("類別（C 新增、U 修改、D 刪除）");
             e.Property(x => x.MethodName).HasMaxLength(200).IsRequired().HasComment("異動來源（如 BasicUsersController.Update），也是轉存檔名");
-            e.Property(x => x.BeforeData).IsRequired().HasComment("異動前資料（JSON 陣列，新增時為 []，不含機密欄位）");
-            e.Property(x => x.AfterData).IsRequired().HasComment("異動後資料（JSON 陣列，刪除時為 []，不含機密欄位）");
+            e.Property(x => x.Description).HasMaxLength(BasicSyslogContext.DescriptionMaxLength).HasComment("業務說明（選填，如審核通過、批次匯入）");
+            e.Property(x => x.BeforeData).IsRequired().HasComment("異動前資料（JSON 陣列，新增時為 []，機密欄位以 *** 遮蔽）");
+            e.Property(x => x.AfterData).IsRequired().HasComment("異動後資料（JSON 陣列，刪除時為 []，機密欄位以 *** 遮蔽）");
             e.Property(x => x.Username).HasMaxLength(50).HasComment("登入者帳號（未登入為 null）");
             e.Property(x => x.CreatedAt).HasComment("異動時間");
             e.HasIndex(x => x.CreatedAt);

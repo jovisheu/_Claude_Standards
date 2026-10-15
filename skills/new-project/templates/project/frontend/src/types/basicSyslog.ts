@@ -20,6 +20,8 @@ export interface BasicSyslogHistoryRow {
 export interface BasicSyslogHistoryItem {
   id: number
   action: BasicSyslogAction
+  /** 業務說明（選填，如審核通過） */
+  description: string | null
   username: string | null
   createdAt: string
   rows: BasicSyslogHistoryRow[]

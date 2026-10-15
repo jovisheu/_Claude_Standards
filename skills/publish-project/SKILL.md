@@ -53,7 +53,7 @@ disable-model-invocation: true
 - 若要縮小輸出，可在 `.csproj` 設定 `SatelliteResourceLanguages`（如 `zh-Hant`），只保留需要的語系資源。
 - 腳本最後會驗證 `wwwroot/index.html` 的資源路徑使用 `VITE_APP_BASE`，不符即失敗。
 - 腳本第一步以 `npm audit --audit-level=high` 與 `dotnet list package --vulnerable` 檢查，有 High 或 Critical 弱點（或無法連線查詢）即停止；回報弱點套件與建議升級的版本，由使用者決定是否升級，不可略過。不設例外清單：沒有修正版時，回報可替代的套件或需移除的功能，由使用者決定。
-- 最後產生 CycloneDX SBOM 至 `sbom\yyyy\MM\dd\`，檔名為 `<HHmmss>_<commit>_backend.cdx.json`、`<HHmmss>_<commit>_frontend.cdx.json`（每次保留一份，不在輸出目錄內）。
+- 最後產生 CycloneDX SBOM 至 `sbom\yyyy\MM\dd\`（日期為發佈日），檔名為 `<HHmmss>_<commit>_backend.cdx.json`（CycloneDX .NET 工具）、`<HHmmss>_<commit>_frontend.cdx.json`（`npm sbom`，不含開發套件）。每次保留一份於發佈機，`sbom/` 不進版控；SBOM 不得放入發佈輸出或 `wwwroot`（會揭露套件版本）。
 - CycloneDX 工具版本固定於 `dotnet-tools.json`；腳本會查詢 NuGet，有發佈滿 14 天的較新版本時只提醒、不切換。回報時一併列出，由使用者決定是否以 `dotnet tool update CycloneDX --version <版本>` 升級（升級後 commit 並重新發佈）；查詢失敗不影響發佈。
 - 執行失敗時回報錯誤輸出，**不要自行修改腳本繞過**。常見原因：輸出目錄被 IIS 應用程式集區或 `dotnet run` 鎖住（請使用者先停止）、`vue-tsc` 型別錯誤、`npm ci` 與 `package-lock.json` 不一致。
 

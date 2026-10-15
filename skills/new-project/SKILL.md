@@ -13,7 +13,7 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 - **使用方式**：`/new-project`（設定全部取自 `_Project_Info` 與預設值；全部綠燈時不詢問直接建立）。
 - **產出**：`<存放路徑>\<專案名稱>\`（`backend/`、`frontend/`、`publish.ps1`、`dotnet-tools.json`、專案 `CLAUDE.md`）、已建表的資料庫、`publish/` 發佈結果與完成回報；git 已初始化但**不 commit**。
 
-規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）。先完整讀過兩個檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式。
+規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\` 下的 `auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）、`basic-tables.md`（基本資料表與種子）。先完整讀過這些檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式；不使用範本時另讀 `logging-baseline.md`（系統錯誤紀錄與異動歷程）。
 
 建立方式依第 25 項（`Project_Info.txt` 的 `使用範本`）決定：
 
@@ -24,16 +24,12 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 
 ## 0. 指令寫法（減少權限詢問）
 
-紅綠燈只決定是否詢問設定值；Claude Code 的工具權限確認另外判斷，skill 無法略過。為了只在必要時跳出確認，指令一律依下列方式撰寫：
+一律依 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\command-style.md`，另加：
 
-- 一次一個指令、使用絕對路徑；不以 `cd ... &&`、`;` 串接多個指令，也不在指令前加變數設定（`VAR=... cmd`）或用 `$env:` 設定環境變數；需要指定環境或覆寫設定時改用命令列參數（如 `--environment Production`、`--Security:Login:CaptchaEnabled=false`），讓指令以 `dotnet` 開頭，符合允許規則。
-- 讀檔、搜尋、寫檔、修改分別用 Read、Grep／Glob、Write、Edit 工具，不用 `cat`、`sed -i`、`echo >`、heredoc；列目錄可用 `ls`。
-- 不用 `python`（Windows 可能是會卡住的商店捷徑）。
-- 全程不刪除檔案：使用範本時由範本複製建立；不使用範本時後端以空白範本 `dotnet new web` 建立、前端不使用 `npm create vite`（見 `no-template.md`）。兩者都不會產生需要刪除的檔案；`Remove-Item`、`rm` 在權限設定中一律詢問，因此不應出現在建立流程中。（發佈腳本會清空 `backend/wwwroot/` 與 `publish/` 後重建，新專案首次發佈時兩者皆不存在，不會刪除既有檔案。）
+- 全程不刪除檔案：使用範本時由範本複製建立；不使用範本時後端以空白範本 `dotnet new web` 建立、前端不使用 `npm create vite`（見 `no-template.md`），兩者都不會產生需要刪除的檔案。（發佈腳本會清空 `backend/wwwroot/` 與 `publish/` 後重建，新專案首次發佈時兩者皆不存在，不會刪除既有檔案。）
 - 發佈腳本以 `powershell -NoProfile -File "<專案目錄>\publish.ps1" -SkipNpmInstall` 執行（單一指令、絕對路徑）。
-- 佔位符一律以 Edit 工具替換（同一檔案多處相同值可用 `replace_all`），不用 `sed -i` 或 PowerShell 字串取代（PowerShell 5.1 寫檔可能改變編碼或 BOM）。
-- 驗證時不以 `sqlcmd` 或其他方式異動資料庫資料（見第 4 節）；`sqlcmd` 只用於連線測試與唯讀查詢。
-- 讀取 `_Project_Info` 的明文密碼時，以 Read 工具讀取後直接作為參數使用，不在回報或指令輸出中顯示。
+- 佔位符一律以 Edit 工具替換。
+- 驗證時不異動資料庫資料（見第 4 節）。
 
 ## 1. 環境檢查
 
@@ -82,24 +78,9 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 7. 驗證方式：Windows 整合驗證／SQL 帳密 — 預設：同第 5 項
 8. 建立後是否直接執行 Migration 建表 — 預設：是
 
-**將建立的資料表**（「採用設定摘要」或紅燈詢問時須完整列出此表與種子資料；本表為基本資料表欄位的唯一定義來源）：
+**將建立的資料表**：`references\basic-tables.md` 的基本資料表與種子資料（「採用設定摘要」或紅燈詢問時須完整列出）。
 
-| 資料表 | 主要欄位 | 說明 |
-| --- | --- | --- |
-| `BasicUser` | Id、Username（唯一）、Email（唯一）、PasswordHash、DisplayName、IsActive、CreatedAt、UpdatedAt、PasswordResetTokenHash、PasswordResetExpiresAt | 使用者 |
-| `BasicGroup` | Id、Name（唯一）、Description、CreatedAt、UpdatedAt | 群組（角色） |
-| `BasicPermission` | Id、Name（唯一）、Description、Module | 權限，以靜態種子建立 |
-| `BasicUserGroup` | BasicUserId + BasicGroupId（複合主鍵） | 使用者與群組多對多 |
-| `BasicGroupPermission` | BasicGroupId + BasicPermissionId（複合主鍵） | 群組與權限多對多 |
-| `BasicLoginErrlog` | Id、Username、CreatedAt；索引 (Username, CreatedAt) | 登入失敗紀錄（鎖定判斷） |
-| `BasicPwdlog` | Id、Username、PasswordHash、CreatedAt；索引 (Username, CreatedAt) | 密碼歷程（重複與到期判斷） |
-| `BasicExceptionlog` | Id、ExceptionType、MethodName、Message、StackTrace、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統錯誤紀錄（超過保留天數轉存 txt 後刪除） |
-| `BasicSyslog` | Id、Action（C／U／D）、MethodName、BeforeData（JSON 陣列）、AfterData（JSON 陣列）、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統異動歷程（寫入前將超過保留天數的紀錄轉存 txt 後刪除） |
-
-- 種子資料：權限（`basicuser.read`、`basicgroup.update` 等）、受保護的「系統管理員」群組（`Id = 1`，全部權限）、「訪客」群組（`Id = 2`，全部 `*.read` 權限，含業務功能的檢視權限）、第 9 項的預設管理員（`Id = 1`，系統管理員群組）與預設一般使用者（`Id = 2`，訪客群組），以及兩人各一筆初始密碼歷程（建立日期為建立專案當日，首次登入不強制變更密碼）。
 - 第 23 項有業務功能時，另列出該功能的資料表與欄位（含資料表與欄位描述）；業務資料表一律加上 `CreatedAt`、`UpdatedAt`（規則見通用規範「後端架構與目錄規範」），`Project_Info.txt` 未列也要補上。
-- 所有資料表與欄位建立時一併以 `HasComment` 加上描述（規則見通用規範「後端架構與目錄規範」）；基本資料表的描述以範本 `backend/Data/AppDbContext.cs` 為準。
-- EF Core 另會自動建立 `__EFMigrationsHistory`。
 
 ### 三、預設帳號（種子資料）
 9. 帳號、Email、顯示名稱：

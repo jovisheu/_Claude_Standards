@@ -46,6 +46,7 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
             {
                 Id = s.Id,
                 Action = s.Action,
+                Description = s.Description,
                 Username = s.Username,
                 CreatedAt = s.CreatedAt,
                 Rows = BuildRows(s.BeforeData, s.AfterData, IsRelevant)

@@ -10,6 +10,9 @@ public class BasicSyslogHistoryItem
     /// <summary>類別：C 新增、U 修改、D 刪除</summary>
     public string Action { get; set; } = string.Empty;
 
+    /// <summary>業務說明（選填，如審核通過）</summary>
+    public string? Description { get; set; }
+
     /// <summary>操作者帳號；未登入（如重設密碼）為 null</summary>
     public string? Username { get; set; }
 

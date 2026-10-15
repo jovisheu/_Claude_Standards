@@ -40,9 +40,13 @@ const modules = computed(() => {
   return [...map.entries()].map(([name, items]) => ({ name, items }))
 })
 
-/** 受保護群組的權限不可修改；只能授予自己擁有的權限 */
-function isBasicPermissionDisabled(basicPermission: BasicPermissionItem) {
-  return isProtected.value || !basicPermission.grantable
+/** 受保護群組的權限不可修改；只能授予自己擁有的權限（不可變更者不渲染勾選框，只以文字顯示現況） */
+function isBasicPermissionEditable(basicPermission: BasicPermissionItem) {
+  return !isProtected.value && basicPermission.grantable
+}
+
+function hasBasicPermission(basicPermission: BasicPermissionItem) {
+  return form.basicPermissionIds.includes(basicPermission.id)
 }
 
 function submit() {
@@ -68,22 +72,24 @@ function submit() {
           <fieldset v-for="mod in modules" :key="mod.name" class="rounded-md border border-gray-200 p-3">
             <legend class="px-1 text-sm font-medium text-gray-700">{{ mod.name }}</legend>
             <div class="grid gap-2 sm:grid-cols-4">
-              <label
-                v-for="basicPermission in mod.items"
-                :key="basicPermission.id"
-                class="inline-flex items-center gap-2 text-sm"
-                :class="isBasicPermissionDisabled(basicPermission) ? 'text-gray-400' : 'text-gray-700'"
-                :title="basicPermission.name"
-              >
-                <input
-                  v-model="form.basicPermissionIds"
-                  type="checkbox"
-                  class="h-4 w-4"
-                  :value="basicPermission.id"
-                  :disabled="isBasicPermissionDisabled(basicPermission)"
-                />
-                {{ basicPermission.description || basicPermission.name }}
-              </label>
+              <template v-for="basicPermission in mod.items" :key="basicPermission.id">
+                <label
+                  v-if="isBasicPermissionEditable(basicPermission)"
+                  class="inline-flex items-center gap-2 text-sm text-gray-700"
+                  :title="basicPermission.name"
+                >
+                  <input v-model="form.basicPermissionIds" type="checkbox" class="h-4 w-4" :value="basicPermission.id" />
+                  {{ basicPermission.description || basicPermission.name }}
+                </label>
+                <!-- 不可變更：不渲染勾選框，已擁有的權限以文字顯示 -->
+                <span
+                  v-else-if="hasBasicPermission(basicPermission)"
+                  class="inline-flex items-center gap-1 text-sm text-gray-500"
+                  :title="basicPermission.name"
+                >
+                  ✓ {{ basicPermission.description || basicPermission.name }}
+                </span>
+              </template>
             </div>
           </fieldset>
         </div>

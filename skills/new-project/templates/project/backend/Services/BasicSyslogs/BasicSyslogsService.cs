@@ -76,6 +76,7 @@ public class BasicSyslogsService(
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tracker = scope.ServiceProvider.GetRequiredService<BasicSyslogSaveTracker>();
 
         while (true)
         {
@@ -98,7 +99,11 @@ public class BasicSyslogsService(
             }
 
             var ids = batch.Select(x => x.Id).ToList();
-            await db.BasicSyslog.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync();
+            // 系統紀錄表已轉存，批次刪除不需異動歷程，明確告知把關
+            using (tracker.AllowLogArchiveDelete(nameof(BasicSyslog)))
+            {
+                await db.BasicSyslog.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync();
+            }
             total += batch.Count;
         }
 
@@ -109,6 +114,10 @@ public class BasicSyslogsService(
     {
         content.AppendLine($"[{item.CreatedAt:yyyy-MM-dd HH:mm:ss.fff}] Id：{item.Id}　類別：{item.Action}　帳號：{item.Username ?? "-"}");
         content.AppendLine($"MethodName：{item.MethodName}");
+        if (item.Description != null)
+        {
+            content.AppendLine($"說明：{item.Description}");
+        }
         content.AppendLine($"異動前：{item.BeforeData}");
         content.AppendLine($"異動後：{item.AfterData}");
         content.AppendLine(new string('-', 80));

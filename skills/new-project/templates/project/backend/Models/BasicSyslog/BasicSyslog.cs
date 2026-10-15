@@ -13,10 +13,13 @@ public class BasicSyslog
     /// <summary>異動來源（如 BasicUsersController.Update），同時作為轉存的檔名</summary>
     public string MethodName { get; set; } = string.Empty;
 
-    /// <summary>異動前資料（JSON 陣列，新增時為 []；不含機密欄位）</summary>
+    /// <summary>業務說明（選填）：Service 以 BasicSyslogContext.Describe 指定，否則取端點的 BasicSyslogDescription，皆無為 null</summary>
+    public string? Description { get; set; }
+
+    /// <summary>異動前資料（JSON 陣列，新增時為 []；機密欄位以 *** 遮蔽）</summary>
     public string BeforeData { get; set; } = "[]";
 
-    /// <summary>異動後資料（JSON 陣列，刪除時為 []；不含機密欄位）</summary>
+    /// <summary>異動後資料（JSON 陣列，刪除時為 []；機密欄位以 *** 遮蔽）</summary>
     public string AfterData { get; set; } = "[]";
 
     /// <summary>登入者帳號；未登入（如重設密碼）為 null</summary>

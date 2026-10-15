@@ -41,11 +41,13 @@ public class BasicGroupsController(IBasicGroupsService basicGroupsService, IBasi
 
     [HttpPost]
     [Authorize(Policy = BasicPermissionNames.BasicGroupCreate)]
+    [BasicSyslogDescription("新增群組")]
     public async Task<ApiResponse<int>> Create(BasicGroupSaveRequest request)
         => ApiResponse<int>.Ok(await basicGroupsService.CreateAsync(request, User.GetBasicUserId()), "新增成功");
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicGroupUpdate)]
+    [BasicSyslogDescription("編輯群組")]
     public async Task<ApiResponse> Update(int id, BasicGroupSaveRequest request)
     {
         await basicGroupsService.UpdateAsync(id, request, User.GetBasicUserId());
@@ -54,6 +56,7 @@ public class BasicGroupsController(IBasicGroupsService basicGroupsService, IBasi
 
     [HttpDelete("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicGroupDelete)]
+    [BasicSyslogDescription("刪除群組")]
     public async Task<ApiResponse> Delete(int id)
     {
         await basicGroupsService.DeleteAsync(id, User.GetBasicUserId());

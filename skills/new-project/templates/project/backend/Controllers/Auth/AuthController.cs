@@ -39,6 +39,7 @@ public class AuthController(IAuthService authService, ICaptchaService captchaSer
     /// <summary>密碼逾期時以變更憑證設定新密碼</summary>
     [HttpPost("change-expired-password")]
     [AllowAnonymous]
+    [BasicSyslogDescription("逾期變更密碼")]
     [EnableRateLimiting(RateLimitPolicies.Login)]
     public async Task<ApiResponse> ChangeExpiredPassword(ChangeExpiredPasswordRequest request)
     {
@@ -48,6 +49,7 @@ public class AuthController(IAuthService authService, ICaptchaService captchaSer
 
     [HttpPost("forgot-password")]
     [AllowAnonymous]
+    [BasicSyslogDescription("申請重設密碼")]
     [EnableRateLimiting(RateLimitPolicies.Login)]
     public async Task<ApiResponse> ForgotPassword(ForgotPasswordRequest request)
     {
@@ -57,6 +59,7 @@ public class AuthController(IAuthService authService, ICaptchaService captchaSer
 
     [HttpPost("reset-password")]
     [AllowAnonymous]
+    [BasicSyslogDescription("重設密碼")]
     [EnableRateLimiting(RateLimitPolicies.Login)]
     public async Task<ApiResponse> ResetPassword(ResetPasswordRequest request)
     {

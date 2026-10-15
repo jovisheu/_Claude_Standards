@@ -52,6 +52,7 @@ public class BasicExceptionlogsService(
 
         using var scope = scopeFactory.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+        var tracker = scope.ServiceProvider.GetRequiredService<BasicSyslogSaveTracker>();
 
         while (true)
         {
@@ -75,7 +76,11 @@ public class BasicExceptionlogsService(
             }
 
             var ids = batch.Select(x => x.Id).ToList();
-            await db.BasicExceptionlog.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
+            // 系統紀錄表已轉存，批次刪除不需異動歷程，明確告知把關
+            using (tracker.AllowLogArchiveDelete(nameof(BasicExceptionlog)))
+            {
+                await db.BasicExceptionlog.Where(x => ids.Contains(x.Id)).ExecuteDeleteAsync(cancellationToken);
+            }
             total += batch.Count;
         }
 

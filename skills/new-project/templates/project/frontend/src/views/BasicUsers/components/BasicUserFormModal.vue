@@ -41,9 +41,13 @@ watch(open, (value) => {
   form.basicGroupIds = [...(props.item?.basicGroupIds ?? [])]
 })
 
-/** 無法指派的群組：保留既有勾選但不可變更 */
-function isBasicGroupDisabled(basicGroup: BasicGroupOption) {
-  return props.isSelf || !basicGroup.assignable
+/** 無法指派的群組或本人：不渲染勾選框，保留既有勾選並以文字顯示 */
+function isBasicGroupEditable(basicGroup: BasicGroupOption) {
+  return !props.isSelf && basicGroup.assignable
+}
+
+function hasBasicGroup(basicGroup: BasicGroupOption) {
+  return form.basicGroupIds.includes(basicGroup.id)
 }
 
 function submit() {
@@ -55,8 +59,14 @@ function submit() {
   <BaseModal v-model="open" :title="isEdit ? '編輯使用者' : '新增使用者'">
     <form id="basic-user-form" class="space-y-4" @submit.prevent="submit">
       <div>
-        <label class="form-label" for="basic-user-username">帳號</label>
-        <input id="basic-user-username" v-model="form.username" class="form-input" maxlength="50" :disabled="isEdit" autocomplete="off" />
+        <template v-if="isEdit">
+          <span class="form-label">帳號</span>
+          <p class="py-2 text-sm text-gray-900">{{ form.username }}</p>
+        </template>
+        <template v-else>
+          <label class="form-label" for="basic-user-username">帳號</label>
+          <input id="basic-user-username" v-model="form.username" class="form-input" maxlength="50" autocomplete="off" />
+        </template>
       </div>
       <div>
         <label class="form-label" for="basic-user-display-name">顯示名稱</label>
@@ -81,8 +91,10 @@ function submit() {
         </div>
       </div>
       <div>
-        <label class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input v-model="form.isActive" type="checkbox" class="h-4 w-4" :disabled="isSelf" />
+        <!-- 不可停用自己：本人不渲染勾選框 -->
+        <p v-if="isSelf" class="text-sm text-gray-700">狀態：{{ form.isActive ? '啟用' : '停用' }}（不可變更自己的狀態）</p>
+        <label v-else class="inline-flex items-center gap-2 text-sm text-gray-700">
+          <input v-model="form.isActive" type="checkbox" class="h-4 w-4" />
           啟用
         </label>
       </div>
@@ -90,15 +102,14 @@ function submit() {
         <span class="form-label">群組</span>
         <p v-if="isSelf" class="mb-2 text-xs text-gray-500">不可變更自己的群組</p>
         <div class="grid gap-2 sm:grid-cols-2">
-          <label
-            v-for="basicGroup in basicGroupOptions"
-            :key="basicGroup.id"
-            class="inline-flex items-center gap-2 text-sm"
-            :class="isBasicGroupDisabled(basicGroup) ? 'text-gray-400' : 'text-gray-700'"
-          >
-            <input v-model="form.basicGroupIds" type="checkbox" class="h-4 w-4" :value="basicGroup.id" :disabled="isBasicGroupDisabled(basicGroup)" />
-            {{ basicGroup.name }}
-          </label>
+          <template v-for="basicGroup in basicGroupOptions" :key="basicGroup.id">
+            <label v-if="isBasicGroupEditable(basicGroup)" class="inline-flex items-center gap-2 text-sm text-gray-700">
+              <input v-model="form.basicGroupIds" type="checkbox" class="h-4 w-4" :value="basicGroup.id" />
+              {{ basicGroup.name }}
+            </label>
+            <!-- 不可變更：不渲染勾選框，已加入的群組以文字顯示 -->
+            <span v-else-if="hasBasicGroup(basicGroup)" class="inline-flex items-center gap-1 text-sm text-gray-500">✓ {{ basicGroup.name }}</span>
+          </template>
         </div>
       </div>
     </form>

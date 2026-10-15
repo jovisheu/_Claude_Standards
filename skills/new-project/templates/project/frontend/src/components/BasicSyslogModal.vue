@@ -33,6 +33,7 @@ function display(value: string | null) {
         <div v-for="item in result.items" :key="item.id" class="rounded border border-gray-200">
           <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 text-sm">
             <span class="rounded px-2 py-0.5 text-xs" :class="actionClasses[item.action]">{{ actionLabels[item.action] }}</span>
+            <span v-if="item.description" class="font-medium text-gray-900">{{ item.description }}</span>
             <span class="text-gray-700">{{ formatDateTime(item.createdAt) }}</span>
             <span class="text-gray-500">操作者：{{ item.username ?? '（未登入）' }}</span>
           </div>

@@ -41,11 +41,13 @@ public class BasicUsersController(IBasicUsersService basicUsersService, IBasicSy
 
     [HttpPost]
     [Authorize(Policy = BasicPermissionNames.BasicUserCreate)]
+    [BasicSyslogDescription("新增使用者")]
     public async Task<ApiResponse<int>> Create(BasicUserCreateRequest request)
         => ApiResponse<int>.Ok(await basicUsersService.CreateAsync(request, User.GetBasicUserId()), "新增成功");
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicUserUpdate)]
+    [BasicSyslogDescription("編輯使用者")]
     public async Task<ApiResponse> Update(int id, BasicUserUpdateRequest request)
     {
         await basicUsersService.UpdateAsync(id, request, User.GetBasicUserId());
@@ -54,6 +56,7 @@ public class BasicUsersController(IBasicUsersService basicUsersService, IBasicSy
 
     [HttpDelete("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicUserDelete)]
+    [BasicSyslogDescription("刪除使用者")]
     public async Task<ApiResponse> Delete(int id)
     {
         await basicUsersService.DeleteAsync(id, User.GetBasicUserId());
