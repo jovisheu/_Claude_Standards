@@ -39,7 +39,7 @@ disable-model-invocation: true
 背景啟動後端（`--Security:Login:CaptchaEnabled=false`），以 `curl` 檢查，完成即停止：
 
 - 不需資料庫：`GET /api/auth/options` 回 200 且為 `ApiResponse` 格式；無 Token 呼叫 `/api/auth/me` 回 401 `ApiResponse`；`/api/not-exist` 回 404 `ApiResponse`；錯誤 Content-Type 回 415；回應含安全標頭、`Cache-Control: no-store`、無 `Server` 標頭。
-- 含資料庫：另依 `new-project` 第 4 節「可測」項目驗證登入（管理員與一般使用者）與權限。
+- 含資料庫：另依 `new-project` 第 4 節「可測」項目驗證登入（管理員與一般使用者）與權限；其中登入、權限與回應格式以 `node D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\scripts\api-smoke.js --base http://localhost:<port> --feature basicusers --admin <帳號>:<密碼> --guest <帳號>:<密碼>` 檢查（不加 `--write`）。
 - 發佈結果：依 `new-project` 第 5 節第 3 步，以 Production 啟動 `publish\backend.dll`，確認子路徑首頁、`/swagger` 404、安全標頭。
 
 ## 4. 報告

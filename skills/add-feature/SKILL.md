@@ -13,7 +13,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 - **使用方式**：`/add-feature <功能名稱>(<欄位> <型別> [必填] [唯一]、...)`，例：`/add-feature 公告(標題 nvarchar(100) 必填、內容 nvarchar(max)、發布日期 date)`；規格不足時只詢問缺少的部分。
 - **產出**：新增的前後端程式與 Migration `Add<Table>`（已套用至開發資料庫）、更新的專案 `CLAUDE.md` 與完成回報；**不 commit、不發佈**，完成後請自行 commit 再 `/publish-project`。
 
-規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md`（通用規範）。先完整讀過，再讀專案的 `CLAUDE.md`；涉及登入、密碼或帳號時另讀 `references\auth-baseline.md`。所有程式碼須符合通用規範的命名、目錄、資安、API 格式與資料庫版本（SQL Server 2019）規定。
+規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md`（通用規範）與同目錄 `rules\` 下的 `backend-data.md`、`frontend-ui.md`。先完整讀過，再讀專案的 `CLAUDE.md`；涉及登入、密碼或帳號時另讀 `references\auth-baseline.md`。所有程式碼須符合通用規範的命名、目錄、資安、API 格式與資料庫版本（SQL Server 2019）規定。
 
 實作一律比照專案內既有的使用者管理（`BasicUsers`）：後端 `Models/BasicUser/`、`DTOs/BasicUsers/`、`Services/BasicUsers/`、`Controllers/BasicUsers/`，前端 `src/views/BasicUsers/`。先讀過這些檔案再撰寫，寫法、註解密度與 UI 樣式與其一致；不參考其他專案。
 
@@ -42,23 +42,17 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 
 ### 1.2 紅綠燈
 
+燈號處理與共用紅燈條件（破壞性動作、機密欄位、新套件、資料庫、Migration、建置與驗證）見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\red-lights.md`；本 skill 另有：
+
 | 項目 | 紅燈條件（停下詢問） |
 | --- | --- |
 | 專案結構 | 缺少 `backend/Data/AppDbContext.cs`、`Data/BasicPermissionNames.cs`、`Data/SeedData.cs`、`Services/BasicSyslogs/IBasicSyslogHistoryService.cs`、`frontend/src/components/BasicSyslogModal.vue` 等範本結構（非依規範建立的專案） |
 | 規格 | 無法判斷欄位、型別、長度或關聯 |
 | 名稱 | 資料表、`DbSet`、功能資料夾、API 路徑、權限名稱或前端路由已存在；名稱不可作為識別字；以 `Basic` 開頭 |
 | 關聯 | 外鍵指向的資料表不存在 |
-| 機密欄位 | 含密碼、token、金鑰等欄位（須確認處理方式：雜湊或加密、列入 `MaskedProperties`、不回傳前端） |
-| 既有資料表 | 需求須修改或刪除既有資料表、欄位或資料（破壞性動作） |
-| 新套件 | 需要加入專案尚未使用的 NuGet 或 npm 套件（說明用途、建議的套件與版本、是否有內建或既有套件可替代，取得同意後依 `add-package` skill 加入） |
-| 資料庫 | 無法連線，或版本低於 SQL Server 2019 |
-| Migration | 產生的 Migration 含 `DropTable`、`DropColumn`、`AlterColumn`、`RenameColumn` 或 EF Core 提示可能遺失資料（新增功能不應出現） |
-| 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗 |
+| Migration | 新增功能的 Migration 不應有任何 `AlterColumn`（共用條件中的「只因描述變更」例外不適用） |
 
-工作目錄有其他未 commit 的變更不是紅燈，但於摘要中列出，提醒使用者本次變更會與其混在一起。
-
-- **全部綠燈**：不詢問，輸出一次「採用規格摘要」（資料表與欄位含描述、權限與 Id、API 端點、前端路由與選單），直接進入第 2 節。
-- **任一紅燈**：只列出紅燈項目、原因與建議值詢問；取得回覆後即開工，不再另外確認。
+全部綠燈時輸出的「採用規格摘要」：資料表與欄位含描述、權限與 Id、API 端點、前端路由與選單，然後直接進入第 2 節。
 
 ## 2. 建立
 
@@ -104,14 +98,14 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - `api.ts`：`get<Feature>(query)`、`get<Table>(id)`、`get<Table>BasicSyslogs(id)`（回傳 `BasicSyslogHistoryResult`）、`create<Table>(form)`、`update<Table>(id, form)`、`delete<Table>(id)`。
    - `routes.ts`：path 與 name 為 `<feature>`，`meta: { title: '<功能名稱>', basicPermission: '<table>.read' }`。
    - `components/<Table>FormModal.vue`：新增與編輯共用，`defineModel` 控制開關、`item` prop（`null` 為新增），開啟時重設表單，送出以事件交回 `Index.vue`；前端檢查只為使用體驗，長度上限與後端一致。
-   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見通用規範「UI 慣例」）；「歷程」以 `BasicSyslogModal` 顯示；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
+   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見 `rules\frontend-ui.md`）；「歷程」以 `BasicSyslogModal` 顯示；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
    - 一律以 `{{ }}` 輸出，不使用 `v-html`；站內路徑以 `import.meta.env.BASE_URL` 組成。
 2. `src/router/index.ts` 匯入並加入路由；`src/layouts/menu.ts` 加入選單項目（`basicPermission: '<table>.read'`，首頁卡片同步出現）。
 
 ### 2.3 Migration
 
 1. `dotnet ef migrations add Add<Table> --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`。
-2. 讀過產生的 Migration：只應有 `CreateTable`／`CreateIndex`、權限與群組權限的 `InsertData`；出現第 1.2 節列出的破壞性操作或明文機密即為紅燈。
+2. 讀過產生的 Migration：只應有 `CreateTable`／`CreateIndex`、權限與群組權限的 `InsertData`；出現第 1.2 節列出的破壞性操作或明文機密即為紅燈。產生後 `hooks/check-migration.js` 會自動回報 `Up()` 中的破壞性操作、原生 SQL 與缺少描述的資料表／欄位；缺少描述時補上 `HasComment`，以 `dotnet ef migrations remove` 移除後重新產生。
 3. `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`（套用至開發資料庫）。
 4. 以 `sqlcmd` 唯讀查詢 `sys.extended_properties`，確認新資料表與每個欄位都有 `MS_Description`。
 
@@ -122,25 +116,20 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 ## 3. 驗證
 
 - `dotnet build`、`npm run build` 皆須成功。
-- 背景啟動後端（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`），以 `curl` 只做**不寫入資料**的請求：
-  - 預設管理員：`GET /api/<feature>` 回 200 且格式為分頁 `ApiResponse`；`GET /api/<feature>/{不存在的 id}` 回 404；`GET /api/<feature>/{id}/basicsyslogs` 回 200；`POST /api/<feature>` 送 `{}` 回 400 與中文驗證訊息；文字欄位含 `<b>` 時回 400。
-  - 預設一般使用者（訪客）：`GET /api/<feature>` 回 200；`POST` 回 403；`GET .../basicsyslogs` 回 403。
-  - 無 Token 回 401。
-- **寫入實測**（固定步驟，只在開發資料庫執行）：
-  - 前提：連線字串的伺服器為本機（`localhost`、`127.0.0.1`、`.`、`(local)`）；不是本機時為紅燈，詢問是否為開發資料庫，未確認前不執行寫入實測，列為「未實測」。
-  - 測試資料一律經由 API 寫入（不以 `sqlcmd` 異動資料），文字欄位以 `[測試]` 開頭；需要外鍵資料時先以既有資料測試，沒有時同樣經由 API 建立並於最後刪除。
-  - 依序執行並確認結果（皆以預設管理員）：
-    1. `POST` 新增一筆 → 200，取得 Id。
-    2. `GET {id}` → 200，欄位值與送出的相同，`updatedAt` 為 null；`GET` 列表查詢 `[測試]` 可找到。
-    3. 有唯一欄位時，`POST` 相同值 → 400 與「已存在」訊息；有外鍵時，`POST` 不存在的外鍵 Id → 400。
-    4. `PUT {id}` 修改一個欄位 → 200；`GET {id}` 確認已更新且 `updatedAt` 有值。
-    5. 以預設一般使用者（訪客）`PUT {id}`、`DELETE {id}` → 403。
-    6. `GET {id}/basicsyslogs` → 有新增（`C`）與修改（`U`）兩筆，修改只列出變動的欄位，`description` 分別為端點標註的「新增…」「編輯…」。
-    7. 有刪除限制時，先建立參照資料確認 `DELETE` 回 400，再刪除參照資料。
-    8. `DELETE {id}` → 200；`GET {id}` → 404；`GET {id}/basicsyslogs` 多一筆刪除（`D`）。
-  - 清理：測試建立的資料一律經由 API 刪除；中途失敗時同樣先刪除已建立的測試資料再回報。無法刪除時於回報列出殘留資料的資料表與 Id。
-  - 異動歷程（`BasicSyslog`）中的測試紀錄保留不刪（稽核紀錄），於回報註明其時間範圍，可由 `[測試]` 辨識。
-- 驗證完即停止背景後端。
+- 背景啟動後端（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`），等待 log 出現 `Now listening` 後，以 API 驗證腳本檢查（預設管理員與預設一般使用者的帳密依專案 CLAUDE.md 或 new-project 設定）：
+
+  ```bash
+  node D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\scripts\api-smoke.js --base http://localhost:<port> --feature <feature> --admin <帳號>:<密碼> --guest <帳號>:<密碼> --sample '<新增用 JSON>' --update '<修改的欄位 JSON>' [--unique <欄位>] [--fk <欄位>] [--text-field <欄位>] [--write]
+  ```
+
+  - `--sample` 為一筆合法的新增資料（`<Table>SaveRequest` 的 JSON），`--update` 為修改時變更的欄位；有唯一欄位時加 `--unique`、有外鍵時加 `--fk`；`--text-field` 預設為 `--sample` 中第一個文字欄位（用於 `[測試]` 前綴、HTML 與關鍵字檢查）。
+  - 未加 `--write` 時只做**不寫入資料**的檢查：無 Token 401；管理員列表 200 且為分頁 `ApiResponse`、不存在的 Id 404、歷程 200、送 `{}` 400、文字含 `<b>` 400；訪客列表 200、`POST` 403、歷程 403。
+- **寫入實測**（加 `--write`，只在開發資料庫執行）：
+  - 前提：連線字串的伺服器為本機（`localhost`、`127.0.0.1`、`.`、`(local)`）；不是本機時為紅燈，詢問是否為開發資料庫，未確認前不加 `--write`，列為「未實測」。
+  - 腳本依序執行：新增 → 讀回比對與 `updatedAt` 為 null、列表查詢 `[測試]` → 唯一值／外鍵 400 → 修改後讀回與 `updatedAt` 有值 → 訪客 `PUT`／`DELETE` 403 → 歷程有 `C` 與 `U`、皆有業務說明、修改只列出變動欄位 → 刪除 200、讀回 404、歷程有 `D`。測試資料經由 API 寫入，文字欄位以 `[測試]` 開頭，中途失敗時先刪除已建立的資料。
+  - 腳本未涵蓋：刪除限制（有時先經由 API 建立參照資料，確認 `DELETE` 回 400 後再刪除參照資料）；需要外鍵資料時先以既有資料測試，沒有時同樣經由 API 建立並於最後刪除。
+  - 腳本列出的殘留資料（無法刪除時）與 `BasicSyslog` 測試紀錄的時間範圍（保留不刪，為稽核紀錄）寫入完成回報。
+- 腳本任一項失敗（結束代碼 1）時修正後重跑；驗證完即停止背景後端。
 - 執行 `owasp-check`，範圍為本次變更；發現問題直接修正後重新建置，涉及第 1.2 節紅燈條件時才詢問。
 
 ## 4. 完成回報

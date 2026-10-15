@@ -8,5 +8,5 @@
 * 不用 `python`（Windows 可能是會卡住的商店捷徑）。
 * 不刪除檔案：`Remove-Item`、`rm` 在權限設定中一律詢問，流程中不應出現。
 * 字串取代一律以 Edit 工具（同一檔案多處相同值可用 `replace_all`），不用 `sed -i` 或 PowerShell 字串取代（PowerShell 5.1 寫檔可能改變編碼或 BOM）。
-* `sqlcmd` 只用於連線測試與唯讀查詢，不異動資料庫資料；需要寫入測試資料時經由 API。
+* `sqlcmd` 只用於連線測試與唯讀查詢，不異動資料庫資料；需要寫入測試資料時經由 API。`hooks/guard-commands.js` 會擋下含異動關鍵字的 `sqlcmd`（含 `-i` 輸入檔），查詢內容避免出現 `INTO`、`EXEC` 等字（如欄位別名）以免誤擋。
 * 讀取明文密碼（如 `_Project_Info`）時，以 Read 工具讀取後直接作為參數使用，不在回報或指令輸出中顯示。

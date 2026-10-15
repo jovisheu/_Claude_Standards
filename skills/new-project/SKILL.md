@@ -13,7 +13,7 @@ description: 依 _Claude_Standards 通用規範建立新的 .NET 10 + Vue 3 專�
 - **使用方式**：`/new-project`（設定全部取自 `_Project_Info` 與預設值；全部綠燈時不詢問直接建立）。
 - **產出**：`<存放路徑>\<專案名稱>\`（`backend/`、`frontend/`、`publish.ps1`、`dotnet-tools.json`、專案 `CLAUDE.md`）、已建表的資料庫、`publish/` 發佈結果與完成回報；git 已初始化但**不 commit**。
 
-規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md` 與 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\` 下的 `auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）、`basic-tables.md`（基本資料表與種子）。先完整讀過這些檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式；不使用範本時另讀 `logging-baseline.md`（系統錯誤紀錄與異動歷程）。
+規則來源：`D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\CLAUDE.md`、同目錄 `rules\` 下的 `backend-data.md`（異動歷程寫入、資料表與 Service 規則）與 `frontend-ui.md`（UI 慣例），以及 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\` 下的 `auth-baseline.md`（登入、密碼、忘記密碼、前端登入狀態）、`basic-tables.md`（基本資料表與種子）。先完整讀過這些檔案，建立的所有程式碼都須符合其中的技術棧、目錄結構、資安規範與 API 格式；不使用範本時另讀 `logging-baseline.md`（系統錯誤紀錄與異動歷程）。
 
 建立方式依第 25 項（`Project_Info.txt` 的 `使用範本`）決定：
 

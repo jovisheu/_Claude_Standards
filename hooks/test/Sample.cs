@@ -12,5 +12,10 @@ public class Sample
         db.Database.ExecuteSqlRaw("UPDATE Bulletin SET Title = {0}", title);
         using var other = new AppDbContext(options);
         using (tracker.AllowLogArchiveDelete("BasicSyslog")) { }
+        builder.WithOrigins("x").AllowAnyOrigin();
+        var f = new BinaryFormatter();
+        db.Bulletin.FromSql($"SELECT GREATEST(1, {n})");
+        try { Run(); } catch (Exception) { }
+        options.UseSqlServer(connectionString);
     }
 }

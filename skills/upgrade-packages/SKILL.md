@@ -49,7 +49,7 @@ description: 檢查並升級 .NET + Vue 專案（或 _Claude_Standards 新專案
 
 - 重新執行第 1 節的弱點檢查：不得再有 High／Critical。
 - `dotnet build`、`npm ci --prefix <frontend 絕對路徑>`、`npm run build --prefix <frontend 絕對路徑>` 皆須成功。
-- 一般專案：背景啟動後端（`--Security:Login:CaptchaEnabled=false`），確認登入、`GET /api/basicusers` 回 200、回應標頭不變，驗證完即停止。
+- 一般專案：背景啟動後端（`--Security:Login:CaptchaEnabled=false`），以 `node D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\scripts\api-smoke.js --base http://localhost:<port> --feature basicusers --admin <帳號>:<密碼> --guest <帳號>:<密碼>` 驗證登入、權限與回應格式（不加 `--write`，不寫入資料），並確認回應標頭不變，驗證完即停止。
 - 範本：依 `verify-template` 的 SKILL.md 驗證（見上方「對象」）。
 - 執行 `owasp-check`，範圍為本次變更。
 

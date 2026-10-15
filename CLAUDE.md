@@ -77,13 +77,7 @@
    * 登入失敗、密碼變更、未處理例外、郵件寄送失敗等安全事件須留存紀錄。
    * Log 嚴禁寫入密碼、Token、重設連結、連線字串等機密，也不記錄郵件收件人與內文等個資。
    * 未處理例外與背景作業失敗除寫入 `ILogger` 外，統一呼叫 `IBasicExceptionlogsService.WriteAsync` 寫入 `BasicExceptionlog`；`BusinessException` 不記錄。
-   * 系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`）以外的**所有**新增、修改、刪除都須寫入 `BasicSyslog`，由 `Data/BasicSyslogInterceptor.cs` 自動寫入，新功能不需另外撰寫，但須遵守：
-     * 異動一律載入實體後以 `SaveChangesAsync` 存檔；不可用同步 `SaveChanges`、`ExecuteUpdate`／`ExecuteDelete`、`ExecuteSql` 等原生 SQL 異動。`Data/BasicSyslogCommandGuard.cs` 會在執行時拒絕不經 `SaveChanges` 的異動（fail closed），唯一例外是系統紀錄表轉存後以 `AllowLogArchiveDelete` 宣告的批次刪除。
-     * DbContext 一律由 DI 取得，不可自行 `new AppDbContext(...)`（不會掛上攔截器）。
-     * 只改機密欄位的異動同樣記錄；新增含機密欄位（密碼雜湊、token、金鑰）的資料表時，將欄位加入攔截器的 `MaskedProperties`，歷程中的值以 `***` 遮蔽。
-     * 業務說明 `Description`（選填）：寫入端點標上 `[BasicSyslogDescription("編輯公告")]` 作為預設說明；需依結果區分時（審核通過／退回、批次匯入、系統自動處理），在 `SaveChangesAsync` 前呼叫 `BasicSyslogContext.Describe("...")`，優先於端點預設。說明會顯示於歷程畫面並轉存 txt，不可含密碼、token 等機密或不必要的個資，也不直接放入使用者輸入的長文。
-     * 程式以外的修改（SSMS、部署腳本、Migration 種子）不在攔截範圍，正式環境不直接修改資料，資料修正經由系統功能或 Migration。
-     * 各功能提供 `GET /api/{功能}/{id}/basicsyslogs`（Policy 為該資料表的 `update` 權限），呼叫 `IBasicSyslogHistoryService.GetRecordHistoryAsync(主表, id, 關聯表...)`。
+   * 系統紀錄表以外的**所有**新增、修改、刪除都須寫入 `BasicSyslog`，由 `Data/BasicSyslogInterceptor.cs` 自動寫入：異動一律載入實體後以 `SaveChangesAsync` 存檔（不可同步 `SaveChanges`、`ExecuteUpdate`／`ExecuteDelete`／`ExecuteSql`，不可自行 `new AppDbContext`）；機密欄位、業務說明、歷程端點等寫入規則見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\rules\backend-data.md`（處理後端程式時自動載入；未載入時於撰寫後端資料存取前先讀）。
    * 紀錄欄位、保留天數、轉存至 `Logs\` 與歷程查詢的實作細節見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\logging-baseline.md`；**修改這些機制前須先讀該檔**。
 10. **例外狀況處理不當 (Mishandling of Exceptional Conditions)**:
 
@@ -125,27 +119,7 @@
 * 例外：只操作自身資料表的方法維持動作命名（`GetPagedAsync`、`CreateAsync`）；LINQ／陣列方法的 lambda 參數可用單字母（`u => u.Id`、`ug`）；框架內建名稱（`ControllerBase.User`、`RequireAuthenticatedUser()`）不在此限。
 * 驗證等非資料表功能的 DTO 若指向資料表，名稱須含資料表名稱（如 `CurrentBasicUserResult`、`LoginResult.BasicUser`）。
 
-**資料表規則：**
-
-* 權限一律指派給群組，不直接指派給使用者。「系統管理員」群組擁有全部權限且受保護；「訪客」群組擁有全部檢視（`.read`）權限。
-* 建立資料表或新增欄位時，**必須同時**建立資料表描述與每個欄位的描述，不得事後補上：
-  * EF Core：在 `AppDbContext` 以 `HasComment` 加上繁體中文描述（資料表為 `ToTable("名稱", t => t.HasComment("描述"))`），隨 Migration 寫入 `MS_Description`。
-  * 原生 SQL 建表（SSMS、部署腳本）：同一腳本內以 `sp_addextendedproperty` 寫入 `MS_Description`（資料表與每個欄位）。
-  * 建表或加欄位後，以唯讀查詢 `sys.extended_properties` 確認都有 `MS_Description`。
-  * 描述只說明欄位本身的意義（自動編號主鍵為「流水號」、外鍵註明指向的資料表欄位，如「使用者編號（BasicUser.Id）」），不寫特定資料的值或程式約定。`__EFMigrationsHistory` 不加描述。
-* 業務資料表與可在系統中新增、修改的基本資料表（`BasicUser`、`BasicGroup`）一律含 `CreatedAt`（建立時間，不可為 null）與 `UpdatedAt`（最後修改時間，可為 null）。
-  * 新增時由 Service 設 `CreatedAt = DateTime.Now`、`UpdatedAt` 為 null；修改時一律設 `UpdatedAt = DateTime.Now`（含只改關聯表的修改，異動歷程查詢依此找出該筆資料）。
-  * 列表 DTO 一併回傳 `CreatedAt`、`UpdatedAt`，供前端顯示異動時間。
-  * 只異動機密欄位時（如申請忘記密碼寫入重設 token 雜湊）不更新 `UpdatedAt`（屬系統動作，非資料內容的修改；異動歷程仍會記錄）。
-  * 不適用：系統紀錄表（只新增，僅 `CreatedAt`）、關聯表（只有複合主鍵）、以靜態種子建立且不提供異動功能的 `BasicPermission`。
-* SQL Server 上可為 null 的欄位不建唯一索引，改建一般索引：EF Core 會建成篩選索引，以 sqlcmd 等預設 `QUOTED_IDENTIFIER OFF` 的工具更新該表時會失敗。
-
-**Service 層寫法：**
-
-* 新增或修改前先檢查唯一值（如帳號、Email、名稱），重複時丟 `BusinessException`，不依賴資料庫例外。
-* 關聯 ID 寫入前先去除重複並確認存在。
-* 主表與關聯表透過導覽屬性一起加入，**只呼叫一次 `SaveChangesAsync`**，讓 EF Core 包在同一個交易中。
-* 異動資料的方法接收 `operatorId`（Controller 傳入目前登入者），用於資料層級的權限檢查。
+**資料表規則與 Service 層寫法**（權限指派給群組、建表或加欄位時**同時**建立資料表與欄位描述、`CreatedAt`／`UpdatedAt`、可為 null 欄位不建唯一索引、唯一值先檢查、只呼叫一次 `SaveChangesAsync`、`operatorId`）見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\rules\backend-data.md`（處理後端程式或 SQL 時自動載入；未載入時於建立資料表或撰寫 Service 前先讀）。
 
 ## 前端架構與目錄規範 (Frontend Structure)
 
@@ -160,16 +134,7 @@ src/views/[Feature]/
 └─ components/    該功能子元件，如 [Entity]FormModal.vue（`BasicUserFormModal.vue`）
 ```
 
-**UI 慣例：**
-
-* 操作結果（儲存成功、刪除成功、操作失敗）一律以訊息視窗顯示，**不使用頁面內提示列**。
-* API 失敗時由 Axios interceptor 顯示錯誤並標記 `handled`；頁面 catch 只在 `!handled` 時補顯示「操作失敗，請再試一次」，避免重複提示。
-* 列表顯示「異動時間」欄：`updatedAt` 為 null 時顯示 `createdAt`（共用 `src/utils/format.ts` 的 `formatModifiedAt`），不另顯示建立時間欄。
-* 沒有該功能的 `create`／`update`／`delete` 權限，或資料受保護（如系統管理員群組不可刪除、權限不可修改；不可停用或刪除自己；不可授予高於自身的權限）時，對應的按鈕、輸入欄位與勾選項一律以 `v-if` **不渲染**，不可用 `disabled`、`v-show` 或 CSS 隱藏（元素仍在 DOM 中，可被瀏覽器開發工具改回可用）；需讓使用者知道現況時改以純文字顯示（如受保護群組的權限清單、不可變更的帳號）。
-  * 前端不渲染只是體驗與減少誤用，後端仍須檢查（見「存取控制失效」）。
-  * `disabled` 只用於與權限無關的暫時狀態（送出中、分頁邊界、必填未填）。
-* 列表操作欄提供「歷程」按鈕（有該功能的 `update` 權限才顯示），以共用元件 `src/components/BasicSyslogModal.vue` 顯示該筆資料的異動歷程；API 函式命名如 `getBasicUserBasicSyslogs(id)`。
-* 新增／編輯共用同一個 Modal，放在該功能的 `components/`：以 `defineModel` 控制開關、`item` prop 區分新增或編輯（`null` 為新增），開啟時重設表單，送出以事件把資料交回 `Index.vue`。
+**UI 慣例**（操作結果以訊息視窗顯示、無權限或受保護時以 `v-if` 不渲染而非 `disabled`、異動時間欄、歷程按鈕、新增／編輯共用 Modal）見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\rules\frontend-ui.md`（處理前端程式時自動載入；未載入時於撰寫前端頁面前先讀）。
 
 ## API 回傳統一格式
 
