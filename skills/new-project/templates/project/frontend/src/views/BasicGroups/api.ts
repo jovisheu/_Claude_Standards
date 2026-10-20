@@ -1,39 +1,32 @@
-import http from '@/api/http'
-import type { ApiResponse, PagedQuery } from '@/types/api'
+import { del, get, post, put } from '@/api/http'
+import type { PagedQuery } from '@/types/api'
 import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import type { BasicGroupDetail, BasicGroupFormData, BasicGroupListItem, BasicPermissionItem } from './types'
 
-export async function getBasicGroups(query: PagedQuery) {
-  const { data } = await http.get<ApiResponse<BasicGroupListItem[]>>('/basicgroups', { params: query })
-  return data
+export function getBasicGroups(query: PagedQuery) {
+  return get<BasicGroupListItem[]>('/basicgroups', query)
 }
 
-export async function getBasicGroup(id: number) {
-  const { data } = await http.get<ApiResponse<BasicGroupDetail>>(`/basicgroups/${id}`)
-  return data.datas!
+export function getBasicGroup(id: number) {
+  return get<BasicGroupDetail>(`/basicgroups/${id}`)
 }
 
-export async function getBasicGroupBasicSyslogs(id: number) {
-  const { data } = await http.get<ApiResponse<BasicSyslogHistoryResult>>(`/basicgroups/${id}/basicsyslogs`)
-  return data.datas!
+export function getBasicPermissionOptions() {
+  return get<BasicPermissionItem[]>('/basicgroups/basicpermission-options')
 }
 
-export async function getBasicPermissions() {
-  const { data } = await http.get<ApiResponse<BasicPermissionItem[]>>('/basicgroups/basicpermissions')
-  return data.datas ?? []
+export function createBasicGroup(data: BasicGroupFormData) {
+  return post<number>('/basicgroups', data)
 }
 
-export async function createBasicGroup(form: BasicGroupFormData) {
-  const { data } = await http.post<ApiResponse<number>>('/basicgroups', form)
-  return data
+export function updateBasicGroup(id: number, data: BasicGroupFormData) {
+  return put<null>(`/basicgroups/${id}`, data)
 }
 
-export async function updateBasicGroup(id: number, form: BasicGroupFormData) {
-  const { data } = await http.put<ApiResponse>(`/basicgroups/${id}`, form)
-  return data
+export function deleteBasicGroup(id: number) {
+  return del<null>(`/basicgroups/${id}`)
 }
 
-export async function deleteBasicGroup(id: number) {
-  const { data } = await http.delete<ApiResponse>(`/basicgroups/${id}`)
-  return data
+export function getBasicGroupBasicSyslogs(id: number) {
+  return get<BasicSyslogHistoryResult>(`/basicgroups/${id}/basicsyslogs`)
 }

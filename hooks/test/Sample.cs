@@ -14,6 +14,7 @@ public class Sample
         using (tracker.AllowLogArchiveDelete("BasicSyslog")) { }
         builder.WithOrigins("x").AllowAnyOrigin();
         var f = new BinaryFormatter();
+        using var smtp = new System.Net.Mail.SmtpClient();
         db.Bulletin.FromSql($"SELECT GREATEST(1, {n})");
         try { Run(); } catch (Exception) { }
         options.UseSqlServer(connectionString);

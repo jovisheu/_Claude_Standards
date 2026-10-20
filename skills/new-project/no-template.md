@@ -7,8 +7,11 @@
 
 燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問：
 
-1. **後端**：以 `dotnet new web -o <專案目錄>\backend -n backend` 建立（空白範本，只產生 `backend.csproj`、`Program.cs`、`appsettings*.json`、`Properties/launchSettings.json`，不含範本檔與 OpenApi 套件）；Controller、Swagger 等依規範自行加入，套件以 `dotnet add package` 加入並寫明確版本號（不用浮動版本）；依規範建立 `Controllers/`、`Services/`、`DTOs/`、`Models/`、`Data/`、`Exceptions/`、`Extensions/`。
-   - 資料表：依 `references\basic-tables.md`，加上第 23 項的業務資料表（業務功能的後端、前端依 `skills\add-feature\SKILL.md` 第 2.1、2.2 節建立；一律含 `CreatedAt`、`UpdatedAt`；列表的異動時間依通用規範、異動歷程與錯誤紀錄依 `references\logging-baseline.md`，`BasicSyslogHistoryService` 與 `BasicSyslogModal.vue` 可參考範本）；資料表與每個欄位以 `HasComment` 加上描述（基本資料表的描述沿用範本 `templates/project/backend/Data/AppDbContext.cs`）。
+1. **後端**：以 `dotnet new web -o <專案目錄>\backend -n backend` 建立（空白範本，只產生 `backend.csproj`、`Program.cs`、`appsettings*.json`、`Properties/launchSettings.json`，不含範本檔與 OpenApi 套件）；Controller、Swagger 等依規範自行加入，套件以 `dotnet add package <套件> --version <版本>` 加入並寫明確版本號（不用浮動版本）；依規範建立 `Controllers/`、`Services/`、`DTOs/`、`Models/`、`Data/`、`Exceptions/`、`Extensions/`。
+   - 必要套件：`BCrypt.Net-Next`、`Microsoft.AspNetCore.Authentication.JwtBearer`、`Microsoft.EntityFrameworkCore.SqlServer`、`Microsoft.EntityFrameworkCore.Design`、`Swashbuckle.AspNetCore`、`MailKit`（郵件）、`SkiaSharp`（圖形驗證碼）；郵件與驗證碼不可改用 `SmtpClient` 或自行實作的影像編碼（見通用規範「專案技術棧」）。
+   - 套件版本：範本 `templates/project/backend/backend.csproj` 已有的套件沿用範本的版本（範本版本已經 `upgrade-packages` 檢查，符合發佈滿 14 天）；範本沒有的套件依 `add-package` skill 選用發佈滿 14 天的最新穩定版，並取得使用者同意。
+   - **每次 `dotnet add package` 後**立即執行 `dotnet list <backend 絕對路徑>\backend.csproj package --vulnerable --include-transitive`：遞移相依有 High 或 Critical 弱點時，以 `dotnet add package <該套件> --version <修正版>` 明確指定修正版，並於 `.csproj` 註明是哪個套件帶進的弱點版本（例：`Microsoft.EntityFrameworkCore.SqlServer` 經 `Microsoft.Data.SqlClient` 帶進的 `System.Security.Cryptography.Pkcs 9.0.11`，須指定 10.0.13 以上）；全部加入後再執行一次，須無 High 或 Critical。
+   - 資料表：依 `references\basic-tables.md`，加上第 23 項的業務資料表（業務功能的後端、前端依 `skills\add-feature\SKILL.md` 第 2.1、2.2 節建立；一律含 `CreatedAt`、`UpdatedAt`；列表的異動時間依通用規範、異動歷程與錯誤紀錄依 `references\logging-baseline.md`，`BasicSyslogHistoryService` 與 `BasicSyslogModal.vue` 可參考範本；歷程畫面以資料表與欄位描述作為顯示名稱時，描述只存在設計時模型，須以 `db.GetService<IDesignTimeModel>().Model` 讀取，從 `db.Model` 讀取會在執行時丟出例外）；資料表與每個欄位以 `HasComment` 加上描述（基本資料表的描述沿用範本 `templates/project/backend/Data/AppDbContext.cs`）。
    - 種子（皆以 `HasData` 靜態種子，隨 Migration 建表寫入）：權限、受保護的「系統管理員」群組（`Id = 1`）、「訪客」群組（`Id = 2`）、預設管理員、預設一般使用者。
      - 預設管理員：第 9、10 項的管理員帳密，加入系統管理員群組；建立時以 BCrypt 產生雜湊，程式與 Migration 只存雜湊，不出現明文密碼。
      - 預設一般使用者：第 9、10 項的一般使用者帳密（雜湊方式同上），加入訪客群組；訪客群組的權限以 `SeedData.BasicPermission` 中名稱以 `.read` 結尾者產生，新增業務功能權限時自動擁有檢視權限。訪客群組不受保護，可由管理員調整或刪除。
@@ -21,7 +24,7 @@
      - `SuppressMapClientErrors = true` 並以 `UseStatusCodePages` 將 `/api` 下沒有 Body 的錯誤（405、415 等）轉為 `ApiResponse`。
      - 預設授權 Policy 會擋下沒有對應端點的請求，須以 `MapFallback("{**path:file}", ...)`（`AllowAnonymous`）讓不存在的檔案路徑回 404，不回空 Body 的 401。
      - 前端 Axios 於錯誤分支讀取 `message`，401 視為登入逾時。
-   - 安全設定：JWT 驗證（簽章、Issuer、Audience、期限）、預設 `[Authorize]`、安全標頭、移除 `Server` 標頭、`Cache-Control: no-store`、Swagger 僅限 Development（非 Development 時 `/swagger` 明確回 404，不落入 SPA fallback）、速率限制。
+   - 安全設定：JWT 驗證（簽章、Issuer、Audience、期限；`OnTokenValidated` 確認使用者仍啟用且安全戳記相符，見 `references\auth-baseline.md`）、預設 `[Authorize]`、安全標頭、移除 `Server` 標頭、`Cache-Control: no-store`、Swagger 僅限 Development（非 Development 時 `/swagger` 明確回 404，不落入 SPA fallback）、速率限制。
    - 密碼設定統一由單一方法處理；郵件範本放 `Template/` 並於啟動時載入。
    - 連線字串、JWT 金鑰、SMTP 密碼：以 AES-256 加密後寫入 `appsettings.json`（SMTP 密碼為空時不解密）。
      - `AES256Key`（32 字元）、`AES256IV`（16 字元）以 `RandomNumberGenerator` 從英數字隨機產生，每個專案各自一組，寫在 `appsettings.json` 頂層。
@@ -34,8 +37,9 @@
    - `Program.cs`、`appsettings*.json`、`launchSettings.json` 直接以 Write 覆寫。
 2. **前端**：Vite + Vue 3 + TypeScript，安裝 Pinia、Axios、Tailwind CSS v4，以 `package-lock.json` 鎖定版本；依規範建立 `src/views/[Feature]/` 結構、Axios interceptor（`handled` 標記）、登入狀態（檢查 `expiresAt`）、路由守衛；版面為側邊選單 + 頂列的後台版面，主色、Logo 依第 24 項。
    - 不使用 `npm create vite`（會產生 `HelloWorld.vue`、`src/assets/`、`public/icons.svg`、`README.md` 等需刪除的範本檔）。以 Write 直接寫入 `package.json`（`name`、`private`、`type: "module"`、`scripts`：`dev`／`build`（`vue-tsc -b && vite build`）／`preview`，不寫 dependencies）、`index.html`、`vite.config.ts`、`tsconfig.json`、`tsconfig.app.json`、`tsconfig.node.json`、`env.d.ts`、`src/` 下所有檔案。
-   - 再以 `npm install --prefix <frontend 絕對路徑> --save-exact vue vue-router pinia axios` 與 `npm install --prefix <frontend 絕對路徑> --save-exact -D vite @vitejs/plugin-vue typescript vue-tsc @vue/tsconfig @types/node tailwindcss @tailwindcss/vite` 安裝，版本寫入 `package.json` 並產生 `package-lock.json`。
-   - `vue-tsc` 不支援 TypeScript 7（原生版本）；安裝到 7.x 時改以 `npm install --prefix <frontend 絕對路徑> --save-exact -D typescript@6` 固定為 6.x，並記錄於專案 CLAUDE.md。
+   - 再以 `npm install --prefix <frontend 絕對路徑> --save-exact --before=<今天 - 14 天，yyyy-MM-dd> vue vue-router pinia axios` 與 `npm install --prefix <frontend 絕對路徑> --save-exact --before=<同上> -D vite @vitejs/plugin-vue typescript vue-tsc @vue/tsconfig @types/node tailwindcss @tailwindcss/vite` 安裝，版本寫入 `package.json` 並產生 `package-lock.json`。`--before` 讓 npm 只選用該日期以前發佈的版本（含相依套件），符合「發佈滿 14 天」的規則。
+   - 安裝後執行 `npm audit --prefix <frontend 絕對路徑>`，須無 High 或 Critical；有時依 `upgrade-packages` 的方式處理，不使用 `npm audit fix --force`。
+   - `vue-tsc` 不支援 TypeScript 7（原生版本）；安裝到 7.x 時改以 `npm install --prefix <frontend 絕對路徑> --save-exact --before=<同上> -D typescript@6` 固定為 6.x，並記錄於專案 CLAUDE.md。
    - Tailwind CSS v4 的自訂 class 要被 `@apply` 引用時須以 `@utility` 定義（`@layer components` 內的 class 無法被 `@apply`）。
    - 前端 `.env` 內容須維持純 ASCII（不加中文註解），否則 Windows PowerShell 5.1 讀取時會亂碼，發佈腳本讀不到 `VITE_APP_BASE`；說明寫在專案 CLAUDE.md。
 3. **部署檔**：依第 19～21 項產生 `web.config`、SPA `index.html` 的 `Cache-Control: no-cache` 設定與發佈腳本。

@@ -1,10 +1,10 @@
-/** 以本地時間顯示日期時間（後端回傳的時間即為伺服器本地時間） */
-export function formatDateTime(value: string | null | undefined) {
-  if (!value) return ''
-  return new Date(value).toLocaleString('zh-TW', { hour12: false })
+/** 後端時間（yyyy-MM-ddTHH:mm:ss，本地時間）轉為 yyyy-MM-dd HH:mm */
+export function formatDateTime(value?: string | null): string {
+  if (!value) return '-'
+  return value.replace('T', ' ').slice(0, 16)
 }
 
-/** 列表的異動時間：未修改過時顯示建立時間 */
-export function formatModifiedAt(item: { createdAt: string; updatedAt: string | null }) {
+/** 列表的「異動時間」：updatedAt 為 null 時顯示 createdAt */
+export function formatModifiedAt(item: { createdAt: string; updatedAt?: string | null }): string {
   return formatDateTime(item.updatedAt ?? item.createdAt)
 }

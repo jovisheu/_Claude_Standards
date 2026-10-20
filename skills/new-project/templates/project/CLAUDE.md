@@ -15,9 +15,10 @@ __PROJECT_PURPOSE__
 | `backend/Template/` | 郵件範本（非公開目錄，啟動時載入，遺失即無法啟動） |
 | `backend/Data/Migrations/` | EF Core Migration |
 | `frontend/` | Vite + Vue 3 + TypeScript + Pinia + Axios + Tailwind CSS v4 |
-| `frontend/src/views/[Feature]/` | 功能資料夾（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/`） |
-| `frontend/src/layouts/menu.ts` | 側邊選單與首頁功能卡片 |
+| `frontend/src/views/[Feature]/` | 功能資料夾（`Index.vue`、`api.ts`、`types.ts`、`routes.ts`、`components/`）；`routes.ts` 的 `meta.menu` 產生側邊選單與首頁功能卡片 |
+| `frontend/src/router/featureRoutes.ts` | 自動載入各功能的 `routes.ts`（新增功能不需修改 router 與選單） |
 | `publish.ps1` | 一鍵發佈腳本（UTF-8 with BOM） |
+| `dotnet-tools.json` | 鎖定 CycloneDX 工具版本（發佈時產生 SBOM） |
 
 ## 啟動方式（開發）
 
@@ -51,7 +52,8 @@ npm run dev --prefix frontend
 - **連線字串**含 `TrustServerCertificate=True`（本機 SQL Server 使用自簽憑證）；正式環境若有受信任憑證可移除後重新加密。
 - **安全參數**皆在 `appsettings.json` 的 `Security` 區段（錯誤鎖定、密碼規則與期限、重設連結時效、速率限制、驗證碼），前端提示數值由 `GET /api/auth/options` 取得。
 - **前端網址**：`App:FrontendUrl` 用於組成重設密碼連結（含部署子路徑）。Production 為 `__FRONTEND_URL__`，Development 覆寫為 `http://localhost:5173`；正式網址確定後修改 `appsettings.json`。
-- **SMTP**：`Smtp:Enabled = false` 時郵件改寫入 `backend/MailPickup/`（已排除於版控）。
+- **SMTP**：以 MailKit 寄送（465 為隱含 TLS，其餘 SSL 連線用 STARTTLS）；`Smtp:Enabled = false` 時郵件改寫入 `backend/MailPickup/`（`.eml`，已排除於版控）。
+- **系統管理員群組**：只有系統管理員能指派、編輯與管理其成員（即使其他群組擁有全部權限）；群組仍有成員時不可刪除。
 - **系統錯誤紀錄與異動歷程**：保留 30 天（`BasicExceptionlog:RetentionDays`、`BasicSyslog:RetentionDays`），逾期轉存至 `backend/Logs/`（已排除於版控）；IIS 應用程式集區帳號須有網站目錄 `Logs\` 的寫入權限，部署時保留該目錄。機制見通用規範與 `references/logging-baseline.md`。
 - **驗證碼**：後端以 SkiaSharp 產生 PNG，答案存於 MemoryCache（一次性、限時）。多台伺服器部署時須改用分散式快取。
 - **逾期變更憑證**同樣存於 MemoryCache；應用程式重啟後失效，使用者重新登入即可。
@@ -61,12 +63,14 @@ npm run dev --prefix frontend
 ## 部署
 
 - __DEPLOY_DESCRIPTION__，部署子路徑 `/__PROJECT_NAME__/`，前後端同源（SPA 由後端 `wwwroot` 提供，不開 CORS）。
+- 請求大小上限 1 MB（Kestrel 與 IIS 皆設定於 `Program.cs`）；日後有檔案上傳功能時須調整。
 - 發佈流程使用 `/publish-project`（執行 `publish.ps1`，產出 `publish/` 與 `sbom/`）；上線前須另以 SBOM 掃描工具掃描該次 SBOM。
 - `backend/web.config` 移除 `Server`、`X-Powered-By` 標頭；正式環境須於 IIS 綁定 HTTPS。
 
 ## 待辦
 
-- [ ] 確定正式網址後更新 `App:FrontendUrl`。
+- [ ] 確定正式網址後更新 `App:FrontendUrl`（未更新時，重設密碼信中的連結只能在伺服器本機開啟）。
+- [ ] 確認正式環境的 SMTP、速率限制、鎖定等參數；正式環境另有金鑰時，以該環境的金鑰重新產生加密值。
 - [ ] 正式環境 IIS 綁定 HTTPS 憑證。
 - [ ] 正式上線前停用預設一般使用者 `__GUEST_USERNAME__` 或變更其密碼（初始密碼為已知值）。
 - [ ] 依需求新增業務功能：使用 `/add-feature`（資料表、權限、後端 API、前端頁面與 Migration）。

@@ -2,9 +2,10 @@ export interface BasicGroupListItem {
   id: number
   name: string
   description: string | null
+  isProtected: boolean
+  isManageable: boolean
   basicUserCount: number
   basicPermissionCount: number
-  isProtected: boolean
   createdAt: string
   updatedAt: string | null
 }
@@ -14,6 +15,7 @@ export interface BasicGroupDetail {
   name: string
   description: string | null
   isProtected: boolean
+  isManageable: boolean
   basicPermissionIds: number[]
   createdAt: string
   updatedAt: string | null
@@ -24,8 +26,7 @@ export interface BasicPermissionItem {
   name: string
   description: string | null
   module: string
-  /** 操作者是否擁有此權限（只能授予自己擁有的權限） */
-  grantable: boolean
+  isAssignable: boolean
 }
 
 export interface BasicGroupFormData {

@@ -1,46 +1,33 @@
-import http from '@/api/http'
-import type { ApiResponse, PagedQuery } from '@/types/api'
+import { del, get, post, put } from '@/api/http'
+import type { PagedQuery } from '@/types/api'
 import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import type { BasicGroupOption, BasicUserDetail, BasicUserFormData, BasicUserListItem } from './types'
 
-export async function getBasicUsers(query: PagedQuery) {
-  const { data } = await http.get<ApiResponse<BasicUserListItem[]>>('/basicusers', { params: query })
-  return data
+export function getBasicUsers(query: PagedQuery) {
+  return get<BasicUserListItem[]>('/basicusers', query)
 }
 
-export async function getBasicUser(id: number) {
-  const { data } = await http.get<ApiResponse<BasicUserDetail>>(`/basicusers/${id}`)
-  return data.datas!
+export function getBasicUser(id: number) {
+  return get<BasicUserDetail>(`/basicusers/${id}`)
 }
 
-export async function getBasicUserBasicSyslogs(id: number) {
-  const { data } = await http.get<ApiResponse<BasicSyslogHistoryResult>>(`/basicusers/${id}/basicsyslogs`)
-  return data.datas!
+export function getBasicGroupOptions() {
+  return get<BasicGroupOption[]>('/basicusers/basicgroup-options')
 }
 
-export async function getBasicGroupOptions() {
-  const { data } = await http.get<ApiResponse<BasicGroupOption[]>>('/basicusers/basicgroup-options')
-  return data.datas ?? []
+export function createBasicUser(data: BasicUserFormData) {
+  return post<number>('/basicusers', data)
 }
 
-export async function createBasicUser(form: BasicUserFormData) {
-  const { data } = await http.post<ApiResponse<number>>('/basicusers', form)
-  return data
+export function updateBasicUser(id: number, data: BasicUserFormData) {
+  const { email, displayName, password, isActive, basicGroupIds } = data
+  return put<null>(`/basicusers/${id}`, { email, displayName, password: password || null, isActive, basicGroupIds })
 }
 
-export async function updateBasicUser(id: number, form: BasicUserFormData) {
-  const { email, displayName, password, isActive, basicGroupIds } = form
-  const { data } = await http.put<ApiResponse>(`/basicusers/${id}`, {
-    email,
-    displayName,
-    password: password || null,
-    isActive,
-    basicGroupIds,
-  })
-  return data
+export function deleteBasicUser(id: number) {
+  return del<null>(`/basicusers/${id}`)
 }
 
-export async function deleteBasicUser(id: number) {
-  const { data } = await http.delete<ApiResponse>(`/basicusers/${id}`)
-  return data
+export function getBasicUserBasicSyslogs(id: number) {
+  return get<BasicSyslogHistoryResult>(`/basicusers/${id}/basicsyslogs`)
 }

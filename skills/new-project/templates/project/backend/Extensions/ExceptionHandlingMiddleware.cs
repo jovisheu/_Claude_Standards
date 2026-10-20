@@ -4,12 +4,13 @@ using backend.Services.BasicExceptionlogs;
 namespace backend.Extensions;
 
 /// <summary>
-/// 全域例外處理：業務錯誤回傳其訊息，其他例外寫入 Log 與 BasicExceptionlog、對外只回通用訊息
+/// 全域例外處理：BusinessException 回傳其訊息；其他例外寫入 ILogger 與 BasicExceptionlog，對外只回通用訊息（不含 StackTrace）。
+/// 回應已開始輸出時無法改寫，重新丟出讓伺服器中止連線，不吞掉例外
 /// </summary>
 public class ExceptionHandlingMiddleware(
     RequestDelegate next,
-    IBasicExceptionlogsService basicExceptionlogs,
-    ILogger<ExceptionHandlingMiddleware> logger)
+    ILogger<ExceptionHandlingMiddleware> logger,
+    IBasicExceptionlogsService basicExceptionlogsService)
 {
     public async Task InvokeAsync(HttpContext context)
     {
@@ -19,25 +20,39 @@ public class ExceptionHandlingMiddleware(
         }
         catch (BusinessException ex)
         {
-            if (context.Response.HasStarted) throw;
-            await context.Response.WriteApiResponseAsync(ex.StatusCode, ex.Message);
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            await ApiResponseWriter.WriteAsync(context, ex.StatusCode, ex.Message);
         }
         catch (BadHttpRequestException ex)
         {
-            if (context.Response.HasStarted) throw;
-            logger.LogWarning("請求格式錯誤：{Path} {StatusCode}", context.Request.Path, ex.StatusCode);
-            await context.Response.WriteApiResponseAsync(ex.StatusCode, "請求資料格式不正確");
+            // 請求本身不正確（如 Body 過大、連線中斷），不視為系統錯誤
+            logger.LogWarning("不正確的請求：{StatusCode} {Path}", ex.StatusCode, context.Request.Path.Value);
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            await ApiResponseWriter.WriteAsync(context, ex.StatusCode, ApiResponseWriter.DefaultMessage(ex.StatusCode));
         }
         catch (OperationCanceledException) when (context.RequestAborted.IsCancellationRequested)
         {
-            // 用戶端中斷連線，不需回應
+            // 用戶端已中斷連線，不需回應
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "未處理的例外：{Method} {Path}", context.Request.Method, context.Request.Path);
-            await basicExceptionlogs.WriteAsync(ex, context.GetMethodName(), context.User.Identity?.Name);
-            if (context.Response.HasStarted) throw;
-            await context.Response.WriteApiResponseAsync(StatusCodes.Status500InternalServerError, "系統發生異常，請聯繫管理員");
+            var methodName = context.GetMethodName();
+            logger.LogError(ex, "未處理的例外：{MethodName}", methodName);
+            await basicExceptionlogsService.WriteAsync(ex, methodName, context.GetUsername());
+            if (context.Response.HasStarted)
+            {
+                throw;
+            }
+
+            await ApiResponseWriter.WriteAsync(context, StatusCodes.Status500InternalServerError, ApiResponseWriter.DefaultMessage(StatusCodes.Status500InternalServerError));
         }
     }
 }

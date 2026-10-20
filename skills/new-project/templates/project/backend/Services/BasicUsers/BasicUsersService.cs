@@ -3,85 +3,121 @@ using backend.DTOs;
 using backend.DTOs.BasicUsers;
 using backend.Exceptions;
 using backend.Models;
-using backend.Services.Password;
 using backend.Services.BasicPermissions;
+using backend.Services.Password;
 using Microsoft.EntityFrameworkCore;
 
 namespace backend.Services.BasicUsers;
 
+/// <summary>
+/// 使用者管理：不可越權（對方權限超過操作者時不可管理、不可指派超過自身權限的群組；系統管理員群組只能由系統管理員指派與管理）、
+/// 不可停用或刪除自己、不可變更自己的群組、系統管理員群組至少保留一位啟用中的成員
+/// </summary>
 public class BasicUsersService(
     AppDbContext db,
     IPasswordService passwordService,
     IBasicPermissionsService basicPermissionsService,
     ILogger<BasicUsersService> logger) : IBasicUsersService
 {
-    private const string NotFoundMessage = "使用者不存在";
+    private const string NotFoundMessage = "找不到指定的使用者";
 
-    public async Task<PagedResult<BasicUserListItem>> GetPagedAsync(PagedQuery query)
+    public async Task<PagedResult<BasicUserListItem>> GetPagedAsync(PagedQuery query, int operatorId)
     {
-        var basicUsers = db.BasicUser.AsNoTracking();
-        if (!string.IsNullOrWhiteSpace(query.Keyword))
+        var source = db.BasicUser.AsNoTracking();
+        var keyword = query.Keyword?.Trim();
+        if (!string.IsNullOrEmpty(keyword))
         {
-            var keyword = query.Keyword.Trim();
-            basicUsers = basicUsers.Where(u => u.Username.Contains(keyword) || u.DisplayName.Contains(keyword) || u.Email.Contains(keyword));
+            source = source.Where(u => u.Username.Contains(keyword) || u.DisplayName.Contains(keyword) || u.Email.Contains(keyword));
         }
 
-        var totalCount = await basicUsers.CountAsync();
-        var items = await basicUsers
+        var totalCount = await source.CountAsync();
+        var rows = await source
             .OrderBy(u => u.Id)
             .Skip((query.Page - 1) * query.PageSize)
             .Take(query.PageSize)
-            .Select(u => new BasicUserListItem
+            .Select(u => new
             {
-                Id = u.Id,
-                Username = u.Username,
-                Email = u.Email,
-                DisplayName = u.DisplayName,
-                IsActive = u.IsActive,
-                BasicGroupNames = u.BasicUserGroup.OrderBy(ug => ug.BasicGroupId).Select(ug => ug.BasicGroup.Name).ToList(),
-                CreatedAt = u.CreatedAt,
-                UpdatedAt = u.UpdatedAt
+                u.Id,
+                u.Username,
+                u.Email,
+                u.DisplayName,
+                u.IsActive,
+                u.CreatedAt,
+                u.UpdatedAt,
+                BasicGroupIds = u.BasicUserGroup.Select(ug => ug.BasicGroupId).ToList(),
+                BasicGroupNames = u.BasicUserGroup.OrderBy(ug => ug.BasicGroupId).Select(ug => ug.BasicGroup!.Name).ToList(),
             })
             .ToListAsync();
 
-        return new PagedResult<BasicUserListItem> { Items = items, TotalCount = totalCount, Page = query.Page, PageSize = query.PageSize };
+        var context = await LoadPermissionContextAsync(operatorId);
+        return new PagedResult<BasicUserListItem>
+        {
+            Items = rows.Select(r => new BasicUserListItem
+            {
+                Id = r.Id,
+                Username = r.Username,
+                Email = r.Email,
+                DisplayName = r.DisplayName,
+                IsActive = r.IsActive,
+                BasicGroupNames = r.BasicGroupNames,
+                IsManageable = context.CanManage(r.BasicGroupIds),
+                IsSelf = r.Id == operatorId,
+                CreatedAt = r.CreatedAt,
+                UpdatedAt = r.UpdatedAt,
+            }).ToList(),
+            TotalCount = totalCount,
+            Page = query.Page,
+            PageSize = query.PageSize,
+        };
     }
 
-    public async Task<BasicUserDetail> GetAsync(int id)
+    public async Task<BasicUserDetail> GetAsync(int id, int operatorId)
     {
-        return await db.BasicUser.AsNoTracking()
+        var basicUser = await db.BasicUser.AsNoTracking()
             .Where(u => u.Id == id)
-            .Select(u => new BasicUserDetail
+            .Select(u => new
             {
-                Id = u.Id,
-                Username = u.Username,
-                Email = u.Email,
-                DisplayName = u.DisplayName,
-                IsActive = u.IsActive,
+                u.Id,
+                u.Username,
+                u.Email,
+                u.DisplayName,
+                u.IsActive,
+                u.CreatedAt,
+                u.UpdatedAt,
                 BasicGroupIds = u.BasicUserGroup.Select(ug => ug.BasicGroupId).ToList(),
-                CreatedAt = u.CreatedAt,
-                UpdatedAt = u.UpdatedAt
             })
             .FirstOrDefaultAsync()
             ?? throw new BusinessException(NotFoundMessage, StatusCodes.Status404NotFound);
+
+        var context = await LoadPermissionContextAsync(operatorId);
+        return new BasicUserDetail
+        {
+            Id = basicUser.Id,
+            Username = basicUser.Username,
+            Email = basicUser.Email,
+            DisplayName = basicUser.DisplayName,
+            IsActive = basicUser.IsActive,
+            BasicGroupIds = basicUser.BasicGroupIds,
+            IsManageable = context.CanManage(basicUser.BasicGroupIds),
+            IsSelf = basicUser.Id == operatorId,
+            CreatedAt = basicUser.CreatedAt,
+            UpdatedAt = basicUser.UpdatedAt,
+        };
     }
 
     public async Task<List<BasicGroupOption>> GetBasicGroupOptionsAsync(int operatorId)
     {
-        var operatorBasicPermissionIds = await basicPermissionsService.GetBasicUserPermissionIdsAsync(operatorId);
-        var operatorIsAdmin = await basicPermissionsService.IsAdminAsync(operatorId);
-
-        var basicGroups = await db.BasicGroup.AsNoTracking()
+        var context = await LoadPermissionContextAsync(operatorId);
+        var options = await db.BasicGroup.AsNoTracking()
             .OrderBy(g => g.Id)
-            .Select(g => new { g.Id, g.Name, BasicPermissionIds = g.BasicGroupPermission.Select(gp => gp.BasicPermissionId).ToList() })
+            .Select(g => new BasicGroupOption { Id = g.Id, Name = g.Name })
             .ToListAsync();
-
-        return basicGroups.Select(g => new BasicGroupOption
+        foreach (var option in options)
         {
-            Id = g.Id,
-            Name = g.Name,
-            Assignable = CanAssignBasicGroup(g.Id, g.BasicPermissionIds, operatorBasicPermissionIds, operatorIsAdmin)
-        }).ToList();
+            option.IsAssignable = context.CanAssign(option.Id);
+        }
+
+        return options;
     }
 
     public async Task<int> CreateAsync(BasicUserCreateRequest request, int operatorId)
@@ -89,8 +125,23 @@ public class BasicUsersService(
         var username = request.Username.Trim();
         var email = request.Email.Trim();
 
-        await EnsureUniqueAsync(username, email, null);
-        var basicGroupIds = await ValidateAssignableBasicGroupsAsync(request.BasicGroupIds, operatorId);
+        if (await db.BasicUser.AnyAsync(u => u.Username == username))
+        {
+            throw new BusinessException("帳號已存在");
+        }
+
+        if (await db.BasicUser.AnyAsync(u => u.Email == email))
+        {
+            throw new BusinessException("Email 已被使用");
+        }
+
+        var context = await LoadPermissionContextAsync(operatorId);
+        var basicGroupIds = request.BasicGroupIds.Distinct().ToList();
+        EnsureGroupsExist(context, basicGroupIds);
+        if (basicGroupIds.Any(id => !context.CanAssign(id)))
+        {
+            throw new BusinessException("不可指派超過自身權限的群組", StatusCodes.Status403Forbidden);
+        }
 
         var basicUser = new BasicUser
         {
@@ -98,7 +149,7 @@ public class BasicUsersService(
             Email = email,
             DisplayName = request.DisplayName.Trim(),
             IsActive = request.IsActive,
-            CreatedAt = DateTime.Now
+            CreatedAt = DateTime.Now,
         };
         foreach (var basicGroupId in basicGroupIds)
         {
@@ -106,10 +157,8 @@ public class BasicUsersService(
         }
 
         await passwordService.SetPasswordAsync(basicUser, request.Password);
-
         db.BasicUser.Add(basicUser);
         await db.SaveChangesAsync();
-
         logger.LogInformation("新增使用者：{BasicUserId}，操作者：{OperatorId}", basicUser.Id, operatorId);
         return basicUser.Id;
     }
@@ -119,50 +168,52 @@ public class BasicUsersService(
         var basicUser = await db.BasicUser.Include(u => u.BasicUserGroup).FirstOrDefaultAsync(u => u.Id == id)
             ?? throw new BusinessException(NotFoundMessage, StatusCodes.Status404NotFound);
 
-        await EnsureCanManageAsync(basicUser, operatorId);
+        var context = await LoadPermissionContextAsync(operatorId);
+        var currentGroupIds = basicUser.BasicUserGroup.Select(ug => ug.BasicGroupId).ToHashSet();
+        EnsureManageable(context, currentGroupIds);
 
         var email = request.Email.Trim();
-        await EnsureUniqueAsync(basicUser.Username, email, id);
-
-        var currentBasicGroupIds = basicUser.BasicUserGroup.Select(ug => ug.BasicGroupId).ToHashSet();
-        var newBasicGroupIds = request.BasicGroupIds.Distinct().ToHashSet();
-        var basicGroupsChanged = !currentBasicGroupIds.SetEquals(newBasicGroupIds);
-
-        if (id == operatorId)
+        if (await db.BasicUser.AnyAsync(u => u.Email == email && u.Id != id))
         {
-            if (!request.IsActive) throw new BusinessException("不可停用自己的帳號");
-            if (basicGroupsChanged) throw new BusinessException("不可變更自己的群組");
+            throw new BusinessException("Email 已被使用");
         }
 
-        if (basicGroupsChanged)
+        var newGroupIds = request.BasicGroupIds.Distinct().ToHashSet();
+        EnsureGroupsExist(context, newGroupIds);
+
+        var isSelf = id == operatorId;
+        if (isSelf && !request.IsActive)
         {
-            // 只檢查新增的群組是否可指派；移除既有群組須具備管理該群組的權限
-            var addedBasicGroupIds = newBasicGroupIds.Except(currentBasicGroupIds).ToList();
-            var removedBasicGroupIds = currentBasicGroupIds.Except(newBasicGroupIds).ToList();
-            await ValidateAssignableBasicGroupsAsync(addedBasicGroupIds, operatorId);
-            await ValidateAssignableBasicGroupsAsync(removedBasicGroupIds, operatorId);
+            throw new BusinessException("不可停用自己");
         }
 
-        // 系統管理員群組至少保留一位啟用中的成員
-        var willLeaveAdmin = currentBasicGroupIds.Contains(SeedData.AdminBasicGroupId)
-            && (!request.IsActive || !newBasicGroupIds.Contains(SeedData.AdminBasicGroupId));
-        if (willLeaveAdmin) await EnsureOtherActiveAdminAsync(id);
+        if (isSelf && !newGroupIds.SetEquals(currentGroupIds))
+        {
+            throw new BusinessException("不可變更自己的群組");
+        }
+
+        // 新增或移除的群組都須在操作者權限內
+        var changedGroupIds = newGroupIds.Except(currentGroupIds).Union(currentGroupIds.Except(newGroupIds));
+        if (changedGroupIds.Any(groupId => !context.CanAssign(groupId)))
+        {
+            throw new BusinessException("不可指派或移除超過自身權限的群組", StatusCodes.Status403Forbidden);
+        }
+
+        await EnsureAdminGroupRemainsAsync(basicUser, currentGroupIds, request.IsActive && newGroupIds.Contains(SeedData.AdminBasicGroupId));
 
         basicUser.Email = email;
         basicUser.DisplayName = request.DisplayName.Trim();
         basicUser.IsActive = request.IsActive;
         basicUser.UpdatedAt = DateTime.Now;
 
-        if (basicGroupsChanged)
+        foreach (var userGroup in basicUser.BasicUserGroup.Where(ug => !newGroupIds.Contains(ug.BasicGroupId)).ToList())
         {
-            foreach (var basicUserGroup in basicUser.BasicUserGroup.Where(ug => !newBasicGroupIds.Contains(ug.BasicGroupId)).ToList())
-            {
-                basicUser.BasicUserGroup.Remove(basicUserGroup);
-            }
-            foreach (var basicGroupId in newBasicGroupIds.Except(currentBasicGroupIds))
-            {
-                basicUser.BasicUserGroup.Add(new BasicUserGroup { BasicUserId = id, BasicGroupId = basicGroupId });
-            }
+            basicUser.BasicUserGroup.Remove(userGroup);
+        }
+
+        foreach (var basicGroupId in newGroupIds.Except(currentGroupIds))
+        {
+            basicUser.BasicUserGroup.Add(new BasicUserGroup { BasicUserId = id, BasicGroupId = basicGroupId });
         }
 
         if (!string.IsNullOrEmpty(request.Password))
@@ -176,104 +227,85 @@ public class BasicUsersService(
 
     public async Task DeleteAsync(int id, int operatorId)
     {
-        if (id == operatorId) throw new BusinessException("不可刪除自己的帳號");
+        if (id == operatorId)
+        {
+            throw new BusinessException("不可刪除自己");
+        }
 
         var basicUser = await db.BasicUser.Include(u => u.BasicUserGroup).FirstOrDefaultAsync(u => u.Id == id)
             ?? throw new BusinessException(NotFoundMessage, StatusCodes.Status404NotFound);
 
-        await EnsureCanManageAsync(basicUser, operatorId);
+        var context = await LoadPermissionContextAsync(operatorId);
+        var currentGroupIds = basicUser.BasicUserGroup.Select(ug => ug.BasicGroupId).ToHashSet();
+        EnsureManageable(context, currentGroupIds);
+        await EnsureAdminGroupRemainsAsync(basicUser, currentGroupIds, willBeActiveAdmin: false);
 
-        if (basicUser.BasicUserGroup.Any(ug => ug.BasicGroupId == SeedData.AdminBasicGroupId))
-        {
-            await EnsureOtherActiveAdminAsync(id);
-        }
-
+        // 關聯一併刪除（同一次存檔，異動歷程含關聯表）
+        db.BasicUserGroup.RemoveRange(basicUser.BasicUserGroup);
         db.BasicUser.Remove(basicUser);
         await db.SaveChangesAsync();
         logger.LogInformation("刪除使用者：{BasicUserId}，操作者：{OperatorId}", id, operatorId);
     }
 
-    private async Task EnsureUniqueAsync(string username, string email, int? excludeId)
+    private static void EnsureManageable(PermissionContext context, IEnumerable<int> basicGroupIds)
     {
-        if (excludeId == null && await db.BasicUser.AnyAsync(u => u.Username == username))
+        if (!context.CanManage(basicGroupIds))
         {
-            throw new BusinessException("帳號已存在");
-        }
-        if (await db.BasicUser.AnyAsync(u => u.Email == email && u.Id != excludeId))
-        {
-            throw new BusinessException("Email 已被使用");
+            throw new BusinessException("此使用者的權限超過您的權限，無法管理", StatusCodes.Status403Forbidden);
         }
     }
 
-    /// <summary>
-    /// 不可管理權限高於自己的使用者；系統管理員群組成員只能由系統管理員管理
-    /// </summary>
-    private async Task EnsureCanManageAsync(BasicUser target, int operatorId)
+    private static void EnsureGroupsExist(PermissionContext context, IEnumerable<int> basicGroupIds)
     {
-        if (target.Id == operatorId) return;
-
-        var operatorIsAdmin = await basicPermissionsService.IsAdminAsync(operatorId);
-        if (operatorIsAdmin) return;
-
-        if (target.BasicUserGroup.Any(ug => ug.BasicGroupId == SeedData.AdminBasicGroupId))
+        if (basicGroupIds.Any(id => !context.GroupPermissionIds.ContainsKey(id)))
         {
-            throw new BusinessException("無法管理系統管理員", StatusCodes.Status403Forbidden);
-        }
-
-        var operatorBasicPermissionIds = await basicPermissionsService.GetBasicUserPermissionIdsAsync(operatorId);
-        var targetBasicGroupIds = target.BasicUserGroup.Select(ug => ug.BasicGroupId).ToList();
-        var targetBasicPermissionIds = await db.BasicGroupPermission
-            .Where(gp => targetBasicGroupIds.Contains(gp.BasicGroupId))
-            .Select(gp => gp.BasicPermissionId)
-            .Distinct()
-            .ToListAsync();
-
-        if (!targetBasicPermissionIds.All(operatorBasicPermissionIds.Contains))
-        {
-            throw new BusinessException("無法管理權限高於自己的使用者", StatusCodes.Status403Forbidden);
+            throw new BusinessException("指定的群組不存在");
         }
     }
 
-    /// <summary>
-    /// 群組去除重複並確認存在，且不可授予高於自身的權限
-    /// </summary>
-    private async Task<List<int>> ValidateAssignableBasicGroupsAsync(IEnumerable<int> basicGroupIds, int operatorId)
+    /// <summary>系統管理員群組至少保留一位啟用中的成員</summary>
+    private async Task EnsureAdminGroupRemainsAsync(BasicUser basicUser, HashSet<int> currentGroupIds, bool willBeActiveAdmin)
     {
-        var ids = basicGroupIds.Distinct().ToList();
-        if (ids.Count == 0) return ids;
-
-        var basicGroups = await db.BasicGroup.AsNoTracking()
-            .Where(g => ids.Contains(g.Id))
-            .Select(g => new { g.Id, BasicPermissionIds = g.BasicGroupPermission.Select(gp => gp.BasicPermissionId).ToList() })
-            .ToListAsync();
-
-        if (basicGroups.Count != ids.Count) throw new BusinessException("群組不存在");
-
-        var operatorBasicPermissionIds = await basicPermissionsService.GetBasicUserPermissionIdsAsync(operatorId);
-        var operatorIsAdmin = await basicPermissionsService.IsAdminAsync(operatorId);
-
-        if (basicGroups.Any(g => !CanAssignBasicGroup(g.Id, g.BasicPermissionIds, operatorBasicPermissionIds, operatorIsAdmin)))
+        var isActiveAdmin = basicUser.IsActive && currentGroupIds.Contains(SeedData.AdminBasicGroupId);
+        if (!isActiveAdmin || willBeActiveAdmin)
         {
-            throw new BusinessException("不可指派權限高於自己的群組", StatusCodes.Status403Forbidden);
+            return;
         }
 
-        return ids;
-    }
-
-    private static bool CanAssignBasicGroup(int basicGroupId, List<int> basicGroupPermissionIds, HashSet<int> operatorBasicPermissionIds, bool operatorIsAdmin)
-    {
-        if (operatorIsAdmin) return true;
-        if (basicGroupId == SeedData.AdminBasicGroupId) return false;
-        return basicGroupPermissionIds.All(operatorBasicPermissionIds.Contains);
-    }
-
-    private async Task EnsureOtherActiveAdminAsync(int excludeBasicUserId)
-    {
-        var hasOther = await db.BasicUserGroup.AnyAsync(ug =>
-            ug.BasicGroupId == SeedData.AdminBasicGroupId && ug.BasicUserId != excludeBasicUserId && ug.BasicUser.IsActive);
-        if (!hasOther)
+        var others = await db.BasicUserGroup.AnyAsync(ug =>
+            ug.BasicGroupId == SeedData.AdminBasicGroupId && ug.BasicUserId != basicUser.Id && ug.BasicUser!.IsActive);
+        if (!others)
         {
             throw new BusinessException("系統管理員群組至少須保留一位啟用中的成員");
         }
+    }
+
+    private async Task<PermissionContext> LoadPermissionContextAsync(int operatorId)
+    {
+        var operatorPermissionIds = await basicPermissionsService.GetBasicPermissionIdsAsync(operatorId);
+        var isAdmin = await basicPermissionsService.IsAdminAsync(operatorId);
+        var groupIds = await db.BasicGroup.AsNoTracking().Select(g => g.Id).ToListAsync();
+        var pairs = (await db.BasicGroupPermission.AsNoTracking()
+                .Select(gp => new { gp.BasicGroupId, gp.BasicPermissionId })
+                .ToListAsync())
+            .ToLookup(p => p.BasicGroupId, p => p.BasicPermissionId);
+
+        var groupPermissionIds = groupIds.ToDictionary(id => id, id => pairs[id].ToHashSet());
+        return new PermissionContext(operatorPermissionIds, isAdmin, groupPermissionIds);
+    }
+
+    /// <summary>
+    /// 操作者權限與各群組權限，判斷可否指派群組或管理使用者；
+    /// 系統管理員群組只能由系統管理員指派，其成員也只能由系統管理員管理（即使操作者擁有全部權限）
+    /// </summary>
+    private sealed record PermissionContext(IReadOnlySet<int> OperatorPermissionIds, bool IsAdmin, Dictionary<int, HashSet<int>> GroupPermissionIds)
+    {
+        public bool CanAssign(int basicGroupId)
+            => (basicGroupId != SeedData.AdminBasicGroupId || IsAdmin)
+               && GroupPermissionIds.TryGetValue(basicGroupId, out var permissionIds)
+               && permissionIds.IsSubsetOf(OperatorPermissionIds);
+
+        public bool CanManage(IEnumerable<int> basicGroupIds)
+            => basicGroupIds.All(id => !GroupPermissionIds.ContainsKey(id) || CanAssign(id));
     }
 }

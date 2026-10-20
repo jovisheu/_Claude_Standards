@@ -1,67 +1,85 @@
 <script setup lang="ts">
+import { ref, watch } from 'vue'
 import BaseModal from '@/components/BaseModal.vue'
+import { isHandled } from '@/api/http'
+import { useMessageStore } from '@/stores/message'
+import type { ApiResponse } from '@/types/api'
 import type { BasicSyslogAction, BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import { formatDateTime } from '@/utils/format'
 
-defineProps<{
+const props = defineProps<{
   title: string
-  /** 查詢結果；載入中或失敗時為 null */
-  result: BasicSyslogHistoryResult | null
-  loading: boolean
+  load: () => Promise<ApiResponse<BasicSyslogHistoryResult>>
 }>()
-
 const open = defineModel<boolean>({ required: true })
+
+const message = useMessageStore()
+const loading = ref(false)
+const result = ref<BasicSyslogHistoryResult | null>(null)
 
 const actionLabels: Record<BasicSyslogAction, string> = { C: '新增', U: '修改', D: '刪除' }
 const actionClasses: Record<BasicSyslogAction, string> = {
-  C: 'bg-green-100 text-green-700',
-  U: 'bg-primary-50 text-primary-700',
-  D: 'bg-red-100 text-red-700',
+  C: 'bg-primary-100 text-primary-800',
+  U: 'bg-blue-100 text-blue-800',
+  D: 'bg-red-100 text-red-800',
 }
 
-function display(value: string | null) {
+watch(open, async (value) => {
+  if (!value) return
+  result.value = null
+  loading.value = true
+  try {
+    result.value = (await props.load()).datas
+  } catch (error) {
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
+    open.value = false
+  } finally {
+    loading.value = false
+  }
+}, { immediate: true })
+
+function display(value: string | null): string {
   return value === null || value === '' ? '（空白）' : value
 }
 </script>
 
 <template>
   <BaseModal v-model="open" :title="title" width="max-w-3xl">
-    <div class="max-h-[65vh] space-y-3 overflow-y-auto">
-      <p v-if="loading || !result" class="py-8 text-center text-gray-400">載入中…</p>
-      <template v-else>
-        <p v-if="result.items.length === 0" class="py-8 text-center text-gray-400">查無異動歷程</p>
-        <div v-for="item in result.items" :key="item.id" class="rounded border border-gray-200">
+    <p v-if="loading" class="py-6 text-center text-sm text-gray-500">載入中…</p>
+    <template v-else-if="result">
+      <p class="mb-3 text-xs text-gray-500">僅顯示最近 {{ result.retentionDays }} 天內的異動紀錄。</p>
+      <p v-if="result.items.length === 0" class="py-6 text-center text-sm text-gray-500">沒有異動紀錄</p>
+      <ol v-else class="space-y-4">
+        <li v-for="item in result.items" :key="item.id" class="rounded-md border border-gray-200">
           <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 bg-gray-50 px-3 py-2 text-sm">
-            <span class="rounded px-2 py-0.5 text-xs" :class="actionClasses[item.action]">{{ actionLabels[item.action] }}</span>
-            <span v-if="item.description" class="font-medium text-gray-900">{{ item.description }}</span>
-            <span class="text-gray-700">{{ formatDateTime(item.createdAt) }}</span>
-            <span class="text-gray-500">操作者：{{ item.username ?? '（未登入）' }}</span>
+            <span class="rounded px-2 py-0.5 text-xs font-medium" :class="actionClasses[item.action]">{{ actionLabels[item.action] }}</span>
+            <span v-if="item.description" class="font-medium text-gray-800">{{ item.description }}</span>
+            <span class="ml-auto text-gray-500">{{ formatDateTime(item.createdAt) }}　{{ item.username ?? '系統' }}</span>
           </div>
-          <div class="divide-y divide-gray-100">
-            <div v-for="(row, index) in item.rows" :key="index" class="px-3 py-2 text-sm">
-              <div class="mb-1 flex items-center gap-2 text-xs text-gray-500">
-                <span>{{ row.tableDescription }}</span>
-                <span class="rounded px-1.5 py-0.5" :class="actionClasses[row.action]">{{ actionLabels[row.action] }}</span>
-              </div>
-              <dl class="grid grid-cols-1 gap-x-4 gap-y-1 sm:grid-cols-[minmax(8rem,auto)_1fr]">
-                <template v-for="field in row.fields" :key="field.name">
-                  <dt class="text-gray-500">{{ field.description }}</dt>
-                  <dd class="break-all text-gray-900">
-                    <template v-if="row.action === 'U'">
-                      <span class="text-gray-400 line-through">{{ display(field.before) }}</span>
-                      <span class="mx-1 text-gray-400">→</span>
-                      <span>{{ display(field.after) }}</span>
-                    </template>
-                    <span v-else-if="row.action === 'D'" class="text-gray-400 line-through">{{ display(field.before) }}</span>
-                    <span v-else>{{ display(field.after) }}</span>
-                  </dd>
-                </template>
-              </dl>
-            </div>
+          <div v-for="(row, rowIndex) in item.rows" :key="rowIndex" class="px-3 py-2">
+            <p class="mb-1 text-xs text-gray-500">{{ row.tableLabel }}（{{ actionLabels[row.action] }}）</p>
+            <table class="w-full text-xs">
+              <thead>
+                <tr class="text-left text-gray-500">
+                  <th class="w-1/4 py-1 pr-2 font-medium">欄位</th>
+                  <th v-if="row.action !== 'C'" class="py-1 pr-2 font-medium">異動前</th>
+                  <th v-if="row.action !== 'D'" class="py-1 font-medium">異動後</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="field in row.fields" :key="field.name" class="border-t border-gray-100 align-top">
+                  <td class="py-1 pr-2 text-gray-600">{{ field.label }}</td>
+                  <td v-if="row.action !== 'C'" class="py-1 pr-2 break-all text-gray-800">{{ display(field.before) }}</td>
+                  <td v-if="row.action !== 'D'" class="py-1 break-all text-gray-800">{{ display(field.after) }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-        </div>
-        <p class="text-xs text-gray-400">只顯示保留天數 {{ result.retentionDays }} 天內的紀錄，較舊的紀錄已轉存至伺服器檔案。</p>
-      </template>
-    </div>
+        </li>
+      </ol>
+    </template>
+    <template #footer>
+      <button type="button" class="btn-secondary" @click="open = false">關閉</button>
+    </template>
   </BaseModal>
 </template>

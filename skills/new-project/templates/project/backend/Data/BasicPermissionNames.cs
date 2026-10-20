@@ -1,7 +1,7 @@
 namespace backend.Data;
 
 /// <summary>
-/// 權限名稱（{資料表名稱小寫}.{動作}），同時作為授權 Policy 名稱
+/// 權限名稱（同時為授權 Policy 名稱），格式為 {資料表小寫}.{read|create|update|delete}
 /// </summary>
 public static class BasicPermissionNames
 {
@@ -15,10 +15,10 @@ public static class BasicPermissionNames
     public const string BasicGroupUpdate = "basicgroup.update";
     public const string BasicGroupDelete = "basicgroup.delete";
 
-    /// <summary>全部權限，用於註冊授權 Policy</summary>
+    /// <summary>所有權限名稱（註冊授權 Policy 用），須與 SeedData.BasicPermission 一致</summary>
     public static readonly string[] All =
     [
         BasicUserRead, BasicUserCreate, BasicUserUpdate, BasicUserDelete,
-        BasicGroupRead, BasicGroupCreate, BasicGroupUpdate, BasicGroupDelete
+        BasicGroupRead, BasicGroupCreate, BasicGroupUpdate, BasicGroupDelete,
     ];
 }

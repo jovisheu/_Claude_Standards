@@ -29,6 +29,7 @@ const RULES = [
   { test: isCs, pattern: /Log(Trace|Debug|Information|Warning|Error|Critical)\(\s*\$"/, message: 'Log 使用字串插值（Log Forging）；須改用結構化參數。' },
   { test: isCs, pattern: /\.AllowAnyOrigin\(/, message: 'CORS 使用 AllowAnyOrigin；同源不啟用 CORS，確有需求時只允許白名單來源。' },
   { test: isCs, pattern: /\bBinaryFormatter\b|TypeNameHandling\.(All|Auto|Objects|Arrays)/, message: '反序列化不可信的型別資訊（BinaryFormatter／TypeNameHandling）；嚴禁使用。' },
+  { test: isCs, pattern: /\bSystem\.Net\.Mail\b/, message: '使用 System.Net.Mail（內建 SmtpClient）寄信；郵件一律使用 MailKit（見通用規範「專案技術棧」）。' },
   { test: isSql, pattern: /\b(GREATEST|LEAST|DATETRUNC|DATE_BUCKET|GENERATE_SERIES|JSON_OBJECT|JSON_ARRAY)\s*\(|\bIS\s+(NOT\s+)?DISTINCT\s+FROM\b/i, message: '使用 SQL Server 2022 以後才有的語法；須以 SQL Server 2019（相容性層級 150）為準。' },
   { test: f => f.endsWith('.vue'), pattern: /\bv-html\b/, message: '使用 v-html；不可信來源資料一律以 {{ }} 輸出。' },
   { test: f => f.endsWith('.csproj'), pattern: /Version="[^"]*\*[^"]*"/, message: '.csproj 使用浮動版本；須寫明確版本號。' },

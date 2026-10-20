@@ -1,6 +1,6 @@
-@import 'tailwindcss';
+@import "tailwindcss";
 
-/* 主色（未指定時使用預設藍色） */
+/* 主色（未指定時使用預設藍色，600 為主色 #1e6fd9；new-project 依第 24 項替換） */
 @theme {
   --color-primary-50: #eef5fd;
   --color-primary-100: #d6e6fa;
@@ -14,56 +14,66 @@
   --color-primary-900: #123c73;
 }
 
-@layer base {
-  html,
-  body {
-    @apply bg-gray-100 text-gray-800;
-    font-family: 'Microsoft JhengHei', 'PingFang TC', 'Noto Sans TC', system-ui, sans-serif;
-  }
+/* 自訂 class 要被 @apply 引用時須以 @utility 定義 */
+@utility btn {
+  @apply inline-flex items-center justify-center gap-1 rounded-md px-4 py-2 text-sm font-medium whitespace-nowrap transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 disabled:cursor-not-allowed disabled:opacity-60;
 }
 
-@utility btn {
-  @apply inline-flex items-center justify-center gap-1 rounded-md px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60;
+@utility btn-sm {
+  @apply px-2.5 py-1 text-xs;
+}
+
+@utility btn-primary {
+  @apply btn bg-primary-600 text-white hover:bg-primary-700;
+}
+
+@utility btn-secondary {
+  @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
+}
+
+@utility btn-danger {
+  @apply btn bg-red-600 text-white hover:bg-red-700;
+}
+
+@utility form-label {
+  @apply mb-1 block text-sm font-medium text-gray-700;
+}
+
+@utility form-input {
+  @apply block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-primary-500 focus:ring-2 focus:ring-primary-200 focus:outline-none;
+}
+
+@utility card {
+  @apply rounded-lg border border-gray-200 bg-white shadow-sm;
+}
+
+@layer base {
+  html,
+  body,
+  #app {
+    @apply h-full;
+  }
+
+  body {
+    @apply bg-gray-100 text-gray-900 antialiased;
+    font-family: "Microsoft JhengHei", "PingFang TC", "Noto Sans TC", system-ui, sans-serif;
+  }
 }
 
 @layer components {
-  .form-label {
-    @apply mb-1 block text-sm font-medium text-gray-700;
-  }
-
-  .form-input {
-    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm outline-none focus:border-primary-500 focus:ring-2 focus:ring-primary-100 disabled:bg-gray-100 disabled:text-gray-500;
-  }
-
-  .btn-primary {
-    @apply btn bg-primary-600 text-white hover:bg-primary-700;
-  }
-
-  .btn-secondary {
-    @apply btn border border-gray-300 bg-white text-gray-700 hover:bg-gray-50;
-  }
-
-  .btn-danger {
-    @apply btn bg-red-600 text-white hover:bg-red-700;
-  }
-
-  .btn-link {
-    @apply text-sm text-primary-600 hover:text-primary-800 hover:underline;
-  }
-
-  .card {
-    @apply rounded-lg bg-white shadow-sm;
-  }
-
-  .table-base {
+  .data-table {
     @apply min-w-full divide-y divide-gray-200 text-sm;
   }
 
-  .table-base th {
-    @apply bg-gray-50 px-4 py-3 text-left font-medium whitespace-nowrap text-gray-600;
+  .data-table th {
+    @apply bg-gray-50 px-4 py-3 text-left font-semibold whitespace-nowrap text-gray-600;
   }
 
-  .table-base td {
-    @apply px-4 py-3 align-middle text-gray-700;
+  .data-table td {
+    @apply px-4 py-3 align-top text-gray-800;
+  }
+
+  .data-table tbody tr {
+    @apply border-t border-gray-100 hover:bg-primary-50/40;
   }
 }

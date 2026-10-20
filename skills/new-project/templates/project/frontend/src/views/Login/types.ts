@@ -1,41 +1,22 @@
-/** 目前登入者 */
-export interface CurrentBasicUser {
-  id: number
-  username: string
-  displayName: string
-  email: string
-  basicPermissionNames: string[]
+import type { CurrentBasicUser } from '@/stores/auth'
+
+export interface CaptchaResult {
+  captchaId: string
+  image: string
+  expireSeconds: number
 }
 
-export interface LoginRequest {
+export interface LoginFormData {
   username: string
   password: string
   captchaId?: string
   captchaCode?: string
 }
 
-/** 登入結果；密碼逾期時只回傳 changeToken */
 export interface LoginResult {
   requirePasswordChange: boolean
-  changeToken: string | null
-  token: string
-  expiresAt: string
-  basicUser: CurrentBasicUser
-}
-
-export interface Captcha {
-  captchaId: string
-  image: string
-}
-
-/** 後端提供的安全參數 */
-export interface AuthOptions {
-  systemName: string
-  captchaEnabled: boolean
-  captchaLength: number
-  passwordMinLength: number
-  passwordRequiredCategories: number
-  passwordHistoryCount: number
-  passwordExpireDays: number
-  resetTokenExpireMinutes: number
+  passwordChangeToken: string | null
+  token: string | null
+  expiresAt: string | null
+  basicUser: CurrentBasicUser | null
 }

@@ -1,5 +1,4 @@
-export interface ResetPasswordRequest {
+export interface ResetPasswordFormData {
   token: string
   newPassword: string
-  confirmPassword: string
 }

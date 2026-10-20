@@ -7,43 +7,43 @@ using Microsoft.Extensions.Options;
 
 namespace backend.Services.Password;
 
-public class PasswordService(AppDbContext db, IOptions<SecuritySettings> securityOptions, ILogger<PasswordService> logger) : IPasswordService
+public class PasswordService(AppDbContext db, IOptions<SecuritySettings> settings) : IPasswordService
 {
     private const int WorkFactor = 12;
-    private readonly PasswordSettings _settings = securityOptions.Value.Password;
+    // BCrypt 只取前 72 位元組，上限須小於此值，超過的部分才不會被忽略
+    private const int MaxLength = 64;
 
     public async Task SetPasswordAsync(BasicUser basicUser, string newPassword)
     {
-        ValidateRules(newPassword);
-
-        // 不得與前 N 次密碼相同
-        if (_settings.HistoryCount > 0 && !string.IsNullOrEmpty(basicUser.Username))
+        var passwordSettings = settings.Value.Password;
+        var errors = ValidateRules(newPassword, passwordSettings);
+        if (errors.Count > 0)
         {
-            var recentHashes = await db.BasicPwdlog
-                .Where(p => p.Username == basicUser.Username)
-                .OrderByDescending(p => p.CreatedAt)
-                .ThenByDescending(p => p.Id)
-                .Take(_settings.HistoryCount)
-                .Select(p => p.PasswordHash)
-                .ToListAsync();
+            throw new BusinessException(string.Join("\n", errors));
+        }
 
-            if (recentHashes.Any(h => Verify(newPassword, h)))
+        // 不得與前 N 次相同（新使用者尚未有歷程）
+        if (!string.IsNullOrEmpty(basicUser.Username) && passwordSettings.HistoryCount > 0)
+        {
+            var recentHashes = await db.BasicPwdlog.AsNoTracking()
+                .Where(x => x.Username == basicUser.Username)
+                .OrderByDescending(x => x.CreatedAt)
+                .ThenByDescending(x => x.Id)
+                .Take(passwordSettings.HistoryCount)
+                .Select(x => x.PasswordHash)
+                .ToListAsync();
+            if (recentHashes.Any(hash => Verify(newPassword, hash)))
             {
-                throw new BusinessException($"新密碼不得與前 {_settings.HistoryCount} 次使用的密碼相同");
+                throw new BusinessException($"新密碼不得與前 {passwordSettings.HistoryCount} 次使用的密碼相同");
             }
         }
 
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(newPassword, WorkFactor);
         var now = DateTime.Now;
-        var hash = BCrypt.Net.BCrypt.HashPassword(newPassword, WorkFactor);
-
-        basicUser.PasswordHash = hash;
+        basicUser.PasswordHash = passwordHash;
         basicUser.PasswordResetTokenHash = null;
         basicUser.PasswordResetExpiresAt = null;
-        if (basicUser.Id != 0) basicUser.UpdatedAt = now;
-
-        db.BasicPwdlog.Add(new BasicPwdlog { Username = basicUser.Username, PasswordHash = hash, CreatedAt = now });
-
-        logger.LogInformation("密碼已設定：{Username}", basicUser.Username);
+        db.BasicPwdlog.Add(new BasicPwdlog { Username = basicUser.Username, PasswordHash = passwordHash, CreatedAt = now });
     }
 
     public bool Verify(string password, string passwordHash)
@@ -60,39 +60,49 @@ public class PasswordService(AppDbContext db, IOptions<SecuritySettings> securit
 
     public async Task<bool> IsExpiredAsync(string username)
     {
-        var lastChanged = await db.BasicPwdlog
-            .Where(p => p.Username == username)
-            .OrderByDescending(p => p.CreatedAt)
-            .Select(p => (DateTime?)p.CreatedAt)
+        var lastChangedAt = await db.BasicPwdlog.AsNoTracking()
+            .Where(x => x.Username == username)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => (DateTime?)x.CreatedAt)
             .FirstOrDefaultAsync();
-
-        return lastChanged == null || lastChanged.Value.AddDays(_settings.ExpireDays) <= DateTime.Now;
+        return lastChangedAt is null || lastChangedAt.Value.AddDays(settings.Value.Password.ExpireDays) <= DateTime.Now;
     }
 
-    /// <summary>
-    /// 密碼規則：至少 N 個半形可列印字元（0x21–0x7E，不含空白）；大寫、小寫、數字、特殊符號至少符合 M 類
-    /// </summary>
-    private void ValidateRules(string password)
+    /// <summary>密碼規則：只接受 0x21–0x7E；至少 N 字元；大寫、小寫、數字、特殊符號至少符合 M 種</summary>
+    private static List<string> ValidateRules(string password, PasswordSettings passwordSettings)
     {
-        if (string.IsNullOrEmpty(password) || password.Length < _settings.MinLength)
+        var errors = new List<string>();
+        if (string.IsNullOrEmpty(password))
         {
-            throw new BusinessException($"密碼至少須 {_settings.MinLength} 個字元");
+            errors.Add("請輸入密碼");
+            return errors;
         }
 
         if (password.Any(c => c < 0x21 || c > 0x7E))
         {
-            throw new BusinessException("密碼只能使用半形英數字與符號，且不可包含空白");
+            errors.Add("密碼只能使用半形英文、數字與符號（不含空白）");
+        }
+
+        if (password.Length < passwordSettings.MinLength)
+        {
+            errors.Add($"密碼至少須 {passwordSettings.MinLength} 個字元");
+        }
+
+        if (password.Length > MaxLength)
+        {
+            errors.Add($"密碼不可超過 {MaxLength} 個字元");
         }
 
         var categories = 0;
         if (password.Any(char.IsAsciiLetterUpper)) categories++;
         if (password.Any(char.IsAsciiLetterLower)) categories++;
         if (password.Any(char.IsAsciiDigit)) categories++;
-        if (password.Any(c => !char.IsAsciiLetterOrDigit(c))) categories++;
-
-        if (categories < _settings.RequiredCategories)
+        if (password.Any(c => c is >= (char)0x21 and <= (char)0x7E && !char.IsAsciiLetterOrDigit(c))) categories++;
+        if (categories < passwordSettings.RequiredCategoryCount)
         {
-            throw new BusinessException($"密碼須包含大寫字母、小寫字母、數字、特殊符號其中 {_settings.RequiredCategories} 種");
+            errors.Add($"密碼須包含大寫字母、小寫字母、數字、特殊符號其中 {passwordSettings.RequiredCategoryCount} 種");
         }
+
+        return errors;
     }
 }

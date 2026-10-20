@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Authorization.Policy;
 namespace backend.Extensions;
 
 /// <summary>
-/// 權限不足時回 403 ApiResponse；未登入交由 JWT OnChallenge 回 401
+/// 授權失敗回傳 ApiResponse：已登入但無權限回 403；未登入交由 JWT OnChallenge 回 401
 /// </summary>
 public class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResultHandler
 {
@@ -14,7 +14,7 @@ public class ApiAuthorizationResultHandler : IAuthorizationMiddlewareResultHandl
     {
         if (authorizeResult.Forbidden)
         {
-            await context.Response.WriteApiResponseAsync(StatusCodes.Status403Forbidden, "權限不足，無法執行此操作");
+            await ApiResponseWriter.WriteAsync(context, StatusCodes.Status403Forbidden, ApiResponseWriter.DefaultMessage(StatusCodes.Status403Forbidden));
             return;
         }
 

@@ -8,46 +8,54 @@ using SkiaSharp;
 
 namespace backend.Services.Captcha;
 
-public class CaptchaService(IMemoryCache cache, IOptions<SecuritySettings> securityOptions) : ICaptchaService
+/// <summary>
+/// 圖形驗證碼（Singleton）：答案只存於伺服器記憶體，限時且一次性；以 SkiaSharp 繪製（隨機旋轉、干擾線與雜點），
+/// 亂數一律使用 RandomNumberGenerator
+/// </summary>
+public class CaptchaService(IMemoryCache cache, IOptions<SecuritySettings> settings) : ICaptchaService
 {
-    // 排除易混淆字元（0/O、1/I/L）
-    private const string Characters = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-    private const string CacheKeyPrefix = "captcha:";
+    private const string CachePrefix = "captcha:";
+
+    // 排除易混淆的 I、O、0、1
+    private const string Characters = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
     private const int Width = 150;
     private const int Height = 48;
 
-    private readonly LoginSettings _settings = securityOptions.Value.Login;
-
     public CaptchaResult Create()
     {
-        var length = Math.Clamp(_settings.CaptchaLength, 4, 8);
-        var code = new string(Enumerable.Range(0, length)
-            .Select(_ => Characters[RandomNumberGenerator.GetInt32(Characters.Length)])
-            .ToArray());
+        var login = settings.Value.Login;
+        var length = Math.Clamp(login.CaptchaLength, 4, 8);
+        var code = RandomNumberGenerator.GetString(Characters, length);
         var captchaId = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
-
-        cache.Set(CacheKeyPrefix + captchaId, code, TimeSpan.FromMinutes(_settings.CaptchaExpireMinutes));
+        var expire = TimeSpan.FromMinutes(login.CaptchaExpireMinutes);
+        cache.Set(CachePrefix + captchaId, code, expire);
 
         return new CaptchaResult
         {
             CaptchaId = captchaId,
-            Image = "data:image/png;base64," + Convert.ToBase64String(Render(code))
+            Image = "data:image/png;base64," + Convert.ToBase64String(Render(code)),
+            ExpireSeconds = (int)expire.TotalSeconds,
         };
     }
 
     public bool Validate(string? captchaId, string? code)
     {
-        if (string.IsNullOrWhiteSpace(captchaId) || string.IsNullOrWhiteSpace(code)) return false;
+        if (string.IsNullOrWhiteSpace(captchaId) || string.IsNullOrWhiteSpace(code))
+        {
+            return false;
+        }
 
-        var key = CacheKeyPrefix + captchaId;
-        if (!cache.TryGetValue(key, out string? expected) || expected == null) return false;
+        var key = CachePrefix + captchaId;
+        if (!cache.TryGetValue(key, out string? expected) || expected is null)
+        {
+            return false;
+        }
 
-        // 一次性使用
+        // 一次性使用：比對前即作廢
         cache.Remove(key);
-
-        return CryptographicOperations.FixedTimeEquals(
-            Encoding.ASCII.GetBytes(expected),
-            Encoding.ASCII.GetBytes(code.Trim().ToUpperInvariant()));
+        var actual = Encoding.ASCII.GetBytes(code.Trim().ToUpperInvariant());
+        return CryptographicOperations.FixedTimeEquals(actual, Encoding.ASCII.GetBytes(expected));
     }
 
     private static byte[] Render(string code)
@@ -56,6 +64,7 @@ public class CaptchaService(IMemoryCache cache, IOptions<SecuritySettings> secur
         using var canvas = new SKCanvas(bitmap);
         canvas.Clear(new SKColor(245, 247, 250));
 
+        // 伺服器沒有 Arial 時退回預設字型
         using var typeface = SKTypeface.FromFamilyName("Arial", SKFontStyle.Bold) ?? SKTypeface.Default;
         using var font = new SKFont(typeface, 30);
         using var paint = new SKPaint { IsAntialias = true };
@@ -81,7 +90,7 @@ public class CaptchaService(IMemoryCache cache, IOptions<SecuritySettings> secur
             canvas.Restore();
         }
 
-        // 干擾點
+        // 雜點
         for (var i = 0; i < 120; i++)
         {
             paint.Color = RandomColor(80, 220);

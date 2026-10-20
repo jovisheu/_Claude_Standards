@@ -1,28 +1,32 @@
 import { ref } from 'vue'
-import { getAuthOptions } from '@/views/Login/api'
-import type { AuthOptions } from '@/views/Login/types'
+import { get } from '@/api/http'
+
+/** 後端提供的安全參數（前端提示的數值不寫死） */
+export interface AuthOptions {
+  captchaEnabled: boolean
+  captchaLength: number
+  passwordMinLength: number
+  passwordRequiredCategoryCount: number
+  passwordHistoryCount: number
+  passwordExpireDays: number
+  passwordResetTokenExpireMinutes: number
+}
 
 const options = ref<AuthOptions | null>(null)
-let loading: Promise<AuthOptions | null> | null = null
+let loading: Promise<void> | null = null
 
-/**
- * 後端提供的安全參數（驗證碼、密碼規則），整個應用程式只取一次
- */
 export function useAuthOptions() {
-  if (!options.value && !loading) {
-    loading = getAuthOptions()
-      .then((data) => {
-        options.value = data
-        return data
+  async function load() {
+    if (options.value) return
+    loading ??= get<AuthOptions>('/auth/options')
+      .then((response) => {
+        options.value = response.datas
       })
-      .catch(() => {
+      .finally(() => {
         loading = null
-        return null
       })
+    await loading
   }
 
-  return {
-    options,
-    ready: () => loading ?? Promise.resolve(options.value),
-  }
+  return { options, load }
 }

@@ -4,234 +4,218 @@ using backend.Data;
 using backend.DTOs.Auth;
 using backend.Exceptions;
 using backend.Models;
+using backend.Services.BasicPermissions;
 using backend.Services.Captcha;
 using backend.Services.Mail;
 using backend.Services.Password;
-using backend.Services.BasicPermissions;
 using backend.Services.Token;
 using backend.Settings;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Options;
+using Microsoft.IdentityModel.Tokens;
 
 namespace backend.Services.Auth;
 
 public class AuthService(
     AppDbContext db,
     IPasswordService passwordService,
-    ICaptchaService captchaService,
     ITokenService tokenService,
+    ICaptchaService captchaService,
     IBasicPermissionsService basicPermissionsService,
     IMailService mailService,
-    IMemoryCache cache,
-    IOptions<SecuritySettings> securityOptions,
-    IOptions<AppSettings> appOptions,
+    IOptions<SecuritySettings> securitySettings,
+    IOptions<AppSettings> appSettings,
     ILogger<AuthService> logger) : IAuthService
 {
-    private const string InvalidCredentialMessage = "帳號或密碼錯誤";
-    private const string ChangeTokenCachePrefix = "pwd-change:";
+    private const string InvalidCredentialsMessage = "帳號或密碼錯誤";
 
-    /// <summary>帳號不存在時用來比對的雜湊，讓回應時間與帳號存在時一致</summary>
-    private static readonly string DummyHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), 12);
+    // 帳號不存在時仍執行一次 BCrypt 驗證，避免以回應時間判斷帳號是否存在
+    private static readonly string DummyPasswordHash = BCrypt.Net.BCrypt.HashPassword(Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), 12);
 
-    private readonly SecuritySettings _security = securityOptions.Value;
-    private readonly AppSettings _app = appOptions.Value;
-
-    public AuthOptionsResult GetOptions() => new()
+    public AuthOptionsResult GetOptions()
     {
-        SystemName = _app.SystemName,
-        CaptchaEnabled = _security.Login.CaptchaEnabled,
-        CaptchaLength = _security.Login.CaptchaLength,
-        PasswordMinLength = _security.Password.MinLength,
-        PasswordRequiredCategories = _security.Password.RequiredCategories,
-        PasswordHistoryCount = _security.Password.HistoryCount,
-        PasswordExpireDays = _security.Password.ExpireDays,
-        ResetTokenExpireMinutes = _security.PasswordReset.TokenExpireMinutes
-    };
+        var settings = securitySettings.Value;
+        return new AuthOptionsResult
+        {
+            CaptchaEnabled = settings.Login.CaptchaEnabled,
+            CaptchaLength = settings.Login.CaptchaLength,
+            PasswordMinLength = settings.Password.MinLength,
+            PasswordRequiredCategoryCount = settings.Password.RequiredCategoryCount,
+            PasswordHistoryCount = settings.Password.HistoryCount,
+            PasswordExpireDays = settings.Password.ExpireDays,
+            PasswordResetTokenExpireMinutes = settings.PasswordReset.TokenExpireMinutes,
+        };
+    }
 
     public async Task<LoginResult> LoginAsync(LoginRequest request)
     {
-        // 驗證碼錯誤不計入錯誤次數
-        EnsureCaptcha(request.CaptchaId, request.CaptchaCode);
-
+        var login = securitySettings.Value.Login;
         var username = request.Username.Trim();
-        var now = DateTime.Now;
+
+        // 錯誤紀錄與鎖定一律以小寫帳號判斷，避免以大小寫變化繞過鎖定（不依賴資料庫定序）
+        var lockKey = username.ToLowerInvariant();
+
+        // 驗證碼錯誤不計入錯誤次數
+        if (login.CaptchaEnabled && !captchaService.Validate(request.CaptchaId, request.CaptchaCode))
+        {
+            throw new BusinessException("驗證碼錯誤或已過期，請重新輸入");
+        }
 
         // 鎖定期間不驗證密碼，也不再寫入紀錄
-        var lockedUntil = await GetLockedUntilAsync(username, now);
-        if (lockedUntil != null)
+        var lockedMinutes = await GetLockedMinutesAsync(lockKey, login);
+        if (lockedMinutes > 0)
         {
-            var minutes = Math.Max(1, (int)Math.Ceiling((lockedUntil.Value - now).TotalMinutes));
-            throw new BusinessException($"登入失敗次數過多，請於 {minutes} 分鐘後再試");
+            throw new BusinessException($"登入失敗次數過多，請於 {lockedMinutes} 分鐘後再試");
         }
 
         var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Username == username);
-        var passwordValid = passwordService.Verify(request.Password, basicUser?.PasswordHash ?? DummyHash);
-        if (basicUser == null || !passwordValid)
+        var passwordValid = passwordService.Verify(request.Password, basicUser?.PasswordHash ?? DummyPasswordHash);
+        if (basicUser is null || !passwordValid || !basicUser.IsActive)
         {
-            // 帳號不存在也記錄
-            db.BasicLoginErrlog.Add(new BasicLoginErrlog { Username = username, CreatedAt = now });
+            // 帳號不存在也記錄；回應不透露帳號是否存在
+            db.BasicLoginErrlog.Add(new BasicLoginErrlog { Username = lockKey, CreatedAt = DateTime.Now });
             await db.SaveChangesAsync();
-            logger.LogWarning("登入失敗（帳號或密碼錯誤）：{Username}", username);
-            throw new BusinessException(InvalidCredentialMessage);
+            logger.LogWarning("登入失敗：{Username}", username);
+            throw new BusinessException(InvalidCredentialsMessage);
         }
 
-        if (!basicUser.IsActive)
-        {
-            logger.LogWarning("登入失敗（帳號已停用）：{BasicUserId}", basicUser.Id);
-            throw new BusinessException("帳號已停用，請聯繫管理員");
-        }
+        // 登入失敗紀錄為安全事件，登入成功後不刪除（保留至轉存），鎖定以最近 N 分鐘內的次數判斷
 
-        // 密碼逾期時不發 JWT，改發一次性、限時的變更憑證
+        // 密碼逾期：不發 JWT，改發一次性、限時的變更憑證
         if (await passwordService.IsExpiredAsync(basicUser.Username))
         {
-            var changeToken = CreateRandomToken();
-            cache.Set(ChangeTokenCachePrefix + HashToken(changeToken), basicUser.Id,
-                TimeSpan.FromMinutes(_security.Password.ChangeTokenExpireMinutes));
-            logger.LogInformation("密碼已逾期，要求變更：{BasicUserId}", basicUser.Id);
-            return new LoginResult { RequirePasswordChange = true, ChangeToken = changeToken };
+            logger.LogInformation("密碼已逾期，要求變更：{Username}", basicUser.Username);
+            return new LoginResult
+            {
+                RequirePasswordChange = true,
+                PasswordChangeToken = tokenService.CreatePasswordChangeToken(basicUser.Id),
+            };
         }
 
         var (token, expiresAt) = tokenService.CreateAccessToken(basicUser);
-        logger.LogInformation("登入成功：{BasicUserId}", basicUser.Id);
-
+        logger.LogInformation("登入成功：{Username}", basicUser.Username);
         return new LoginResult
         {
             Token = token,
             ExpiresAt = expiresAt,
-            BasicUser = await GetCurrentBasicUserAsync(basicUser.Id)
+            BasicUser = await GetCurrentBasicUserAsync(basicUser.Id),
         };
     }
 
     public async Task ChangeExpiredPasswordAsync(ChangeExpiredPasswordRequest request)
     {
-        var cacheKey = ChangeTokenCachePrefix + HashToken(request.ChangeToken);
-        if (!cache.TryGetValue(cacheKey, out int basicUserId))
-        {
-            throw new BusinessException("變更憑證無效或已過期，請重新登入");
-        }
+        var basicUserId = tokenService.GetPasswordChangeBasicUserId(request.Token)
+            ?? throw new BusinessException("變更憑證無效或已過期，請重新登入");
 
         var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Id == basicUserId && u.IsActive)
             ?? throw new BusinessException("變更憑證無效或已過期，請重新登入");
 
-        // 新密碼不符規則時憑證不消耗
+        // 新密碼不符規則時丟出例外，憑證不消耗
         await passwordService.SetPasswordAsync(basicUser, request.NewPassword);
         await db.SaveChangesAsync();
 
-        cache.Remove(cacheKey);
-        logger.LogInformation("逾期密碼已變更：{BasicUserId}", basicUser.Id);
+        tokenService.RevokePasswordChangeToken(request.Token);
+        logger.LogInformation("逾期變更密碼完成：{Username}", basicUser.Username);
     }
 
     public async Task ForgotPasswordAsync(ForgotPasswordRequest request)
     {
-        EnsureCaptcha(request.CaptchaId, request.CaptchaCode);
+        // 驗證碼在比對帳號與 Email 之前檢查，錯誤時不寄信（與登入共用 CaptchaEnabled）
+        if (securitySettings.Value.Login.CaptchaEnabled && !captchaService.Validate(request.CaptchaId, request.CaptchaCode))
+        {
+            throw new BusinessException("驗證碼錯誤或已過期，請重新輸入");
+        }
 
+        var resetSettings = securitySettings.Value.PasswordReset;
         var username = request.Username.Trim();
         var email = request.Email.Trim();
-        var now = DateTime.Now;
-        var settings = _security.PasswordReset;
 
         var basicUser = await db.BasicUser.FirstOrDefaultAsync(u => u.Username == username && u.Email == email && u.IsActive);
-
-        // 不論帳號與 Email 是否相符都回相同訊息；申請後不變更或停用原密碼
-        if (basicUser == null)
+        if (basicUser is null)
         {
-            logger.LogInformation("忘記密碼申請（帳號與 Email 不符）");
+            logger.LogInformation("忘記密碼申請不符：{Username}", username);
             return;
         }
 
-        // 限制同帳號申請頻率
-        if (basicUser.PasswordResetExpiresAt != null)
+        // 同帳號限制申請頻率，避免被利用大量寄信（上次申請時間 = 到期時間 - 連結時效）
+        var now = DateTime.Now;
+        if (basicUser.PasswordResetExpiresAt is { } expiresAt
+            && expiresAt.AddMinutes(-resetSettings.TokenExpireMinutes).AddMinutes(resetSettings.RequestIntervalMinutes) > now)
         {
-            var lastRequestedAt = basicUser.PasswordResetExpiresAt.Value.AddMinutes(-settings.TokenExpireMinutes);
-            if (lastRequestedAt.AddMinutes(settings.RequestIntervalMinutes) > now)
-            {
-                logger.LogInformation("忘記密碼申請過於頻繁，略過：{BasicUserId}", basicUser.Id);
-                return;
-            }
+            logger.LogInformation("忘記密碼申請過於頻繁：{Username}", username);
+            return;
         }
 
-        // 重新申請即覆蓋，舊連結隨即失效；資料庫只存雜湊
-        var token = CreateRandomToken();
+        // 重新申請即覆蓋，舊連結隨即失效；不變更或停用原密碼。只異動機密欄位，不更新 UpdatedAt
+        var token = Base64UrlEncoder.Encode(RandomNumberGenerator.GetBytes(32));
         basicUser.PasswordResetTokenHash = HashToken(token);
-        basicUser.PasswordResetExpiresAt = now.AddMinutes(settings.TokenExpireMinutes);
+        basicUser.PasswordResetExpiresAt = now.AddMinutes(resetSettings.TokenExpireMinutes);
         await db.SaveChangesAsync();
 
-        // 連結網址取自設定檔，不以請求的 Host 標頭組成
-        var resetLink = $"{_app.FrontendUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
-        mailService.QueueResetPasswordMail(basicUser.Email, basicUser.DisplayName, resetLink, settings.TokenExpireMinutes);
-        logger.LogInformation("已排入重設密碼郵件：{BasicUserId}", basicUser.Id);
+        // 連結網址一律取自設定檔，不使用請求的 Host 標頭
+        var resetUrl = $"{appSettings.Value.FrontendUrl.TrimEnd('/')}/reset-password?token={Uri.EscapeDataString(token)}";
+        mailService.QueueResetPasswordMail(basicUser.Email, basicUser.DisplayName, resetUrl, resetSettings.TokenExpireMinutes);
+        logger.LogInformation("已排入重設密碼郵件：{Username}", username);
     }
 
     public async Task ResetPasswordAsync(ResetPasswordRequest request)
     {
         var tokenHash = HashToken(request.Token);
         var now = DateTime.Now;
-
         var basicUser = await db.BasicUser.FirstOrDefaultAsync(u =>
-            u.PasswordResetTokenHash == tokenHash && u.PasswordResetExpiresAt > now && u.IsActive)
+                u.PasswordResetTokenHash == tokenHash && u.PasswordResetExpiresAt > now && u.IsActive)
             ?? throw new BusinessException("重設連結無效或已過期，請重新申請");
 
-        // 新密碼不符規則時連結不消耗；成功後由 SetPasswordAsync 作廢連結
+        // 新密碼不符規則時丟出例外，連結不消耗；設定成功後由 SetPasswordAsync 作廢連結
         await passwordService.SetPasswordAsync(basicUser, request.NewPassword);
         await db.SaveChangesAsync();
-        logger.LogInformation("已透過重設連結變更密碼：{BasicUserId}", basicUser.Id);
+        logger.LogInformation("重設密碼完成：{Username}", basicUser.Username);
     }
 
     public async Task<CurrentBasicUserResult> GetCurrentBasicUserAsync(int basicUserId)
     {
         var basicUser = await db.BasicUser.AsNoTracking().FirstOrDefaultAsync(u => u.Id == basicUserId && u.IsActive)
-            ?? throw new BusinessException("尚未登入或登入已逾時，請重新登入", StatusCodes.Status401Unauthorized);
+            ?? throw new BusinessException("登入已逾時，請重新登入", StatusCodes.Status401Unauthorized);
+        var basicPermissionNames = await basicPermissionsService.GetBasicPermissionNamesAsync(basicUserId) ?? new HashSet<string>();
 
-        var basicPermissions = await basicPermissionsService.GetBasicUserPermissionsAsync(basicUserId);
         return new CurrentBasicUserResult
         {
             Id = basicUser.Id,
             Username = basicUser.Username,
             DisplayName = basicUser.DisplayName,
             Email = basicUser.Email,
-            BasicPermissionNames = basicPermissions.OrderBy(p => p).ToList()
+            BasicPermissionNames = basicPermissionNames.Order(StringComparer.Ordinal).ToList(),
         };
     }
 
-    private void EnsureCaptcha(string? captchaId, string? captchaCode)
-    {
-        if (!_security.Login.CaptchaEnabled) return;
-        if (!captchaService.Validate(captchaId, captchaCode))
-        {
-            throw new BusinessException("驗證碼錯誤或已過期，請重新輸入");
-        }
-    }
-
     /// <summary>
-    /// 以最近 N 分鐘內的錯誤次數判斷是否鎖定；鎖定至觸發鎖定的最後一次錯誤加上鎖定時間
+    /// 以「最後一次錯誤前 N 分鐘內」的錯誤次數判斷是否鎖定，鎖定時間自最後一次錯誤起算；回傳剩餘分鐘數（未鎖定為 0）
     /// </summary>
-    private async Task<DateTime?> GetLockedUntilAsync(string username, DateTime now)
+    private async Task<int> GetLockedMinutesAsync(string username, LoginSettings login)
     {
-        var login = _security.Login;
+        var now = DateTime.Now;
         var since = now.AddMinutes(-(login.FailedWindowMinutes + login.LockoutMinutes));
-
-        var failures = await db.BasicLoginErrlog
-            .Where(l => l.Username == username && l.CreatedAt >= since)
-            .OrderByDescending(l => l.CreatedAt)
-            .Select(l => l.CreatedAt)
+        var recent = await db.BasicLoginErrlog.AsNoTracking()
+            .Where(x => x.Username == username && x.CreatedAt >= since)
+            .OrderByDescending(x => x.CreatedAt)
+            .Select(x => x.CreatedAt)
+            .Take(login.MaxFailedAttempts)
             .ToListAsync();
+        if (recent.Count < login.MaxFailedAttempts)
+        {
+            return 0;
+        }
 
-        if (failures.Count < login.MaxFailedAttempts) return null;
-
-        var last = failures[0];
+        var last = recent[0];
+        var first = recent[^1];
         var lockedUntil = last.AddMinutes(login.LockoutMinutes);
-        if (lockedUntil <= now) return null;
+        if (last - first > TimeSpan.FromMinutes(login.FailedWindowMinutes) || lockedUntil <= now)
+        {
+            return 0;
+        }
 
-        var windowStart = last.AddMinutes(-login.FailedWindowMinutes);
-        var countInWindow = failures.Count(f => f >= windowStart);
-        return countInWindow >= login.MaxFailedAttempts ? lockedUntil : null;
+        return (int)Math.Ceiling((lockedUntil - now).TotalMinutes);
     }
 
-    /// <summary>256 位元隨機 token（URL 安全）</summary>
-    private static string CreateRandomToken()
-        => Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)).TrimEnd('=').Replace('+', '-').Replace('/', '_');
-
-    private static string HashToken(string token)
-        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
+    private static string HashToken(string token) => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(token)));
 }

@@ -1,5 +1,4 @@
-export interface ChangeExpiredPasswordRequest {
-  changeToken: string
+export interface ChangeExpiredPasswordFormData {
+  token: string
   newPassword: string
-  confirmPassword: string
 }

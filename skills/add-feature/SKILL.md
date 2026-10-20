@@ -36,7 +36,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 | 欄位 | 名稱、型別、長度、必填、唯一、中文描述；另一律加上 `Id`（流水號）、`CreatedAt`、`UpdatedAt` |
 | 外鍵 | 欄位名 `{資料表}Id`，刪除規則預設 `Restrict`（被參照的資料不可刪除） |
 | 列表欄位與查詢 | 列表顯示主要文字欄位與「異動時間」；關鍵字查詢比對文字欄位 |
-| 選單位置 | 加在 `menu.ts` 的最後 |
+| 選單位置 | 功能 `routes.ts` 的 `meta.menu.order` 接續既有最大值（排在最後） |
 
 型別對應：文字 `string` + `HasMaxLength`（未指定長度時預設 100；`nvarchar(max)` 不加長度且不建索引）、整數 `int`、金額 `decimal` + `HasPrecision(18, 2)`、日期 `DateOnly`、日期時間 `DateTime`、是否 `bool`；非必填用可為 null 的型別。
 
@@ -82,7 +82,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - 文字欄位 `Trim()`；選填文字為空白時存 `null`。
    - 主表與關聯表透過導覽屬性一起加入，只呼叫一次 `SaveChangesAsync`（不可用同步 `SaveChanges`，也不可用 `ExecuteUpdate`／`ExecuteDelete`／`ExecuteSql` 做異動：不會留下異動歷程，執行時會被 `BasicSyslogCommandGuard` 拒絕）。大量資料同樣載入實體後分批 `SaveChangesAsync`。
    - Log 使用結構化參數（如 `logger.LogInformation("新增公告：{BulletinId}，操作者：{OperatorId}", ...)`），不記錄個資或機密。
-   - 需要資料層級權限時（如只能修改自己建立的資料），以 `operatorId` 檢查，無權讀取的資料回「不存在」。
+   - 需要資料層級權限時（如只能修改自己建立的資料），以 `operatorId` 檢查，無權讀取的資料回「不存在」；`GetPagedAsync`／`GetAsync` 也接收 `operatorId`，並在 `<Table>ListItem`／`<Table>Detail` 回傳 `IsManageable`（比照 `BasicUsers` 的 `IsManageable`／`IsSelf`），前端據此以 `v-if` 不渲染「編輯」「刪除」。
 6. **Controller**（`Controllers/<Feature>/<Feature>Controller.cs`）：
    - `[ApiController]`、`[Route("api/<feature>")]`、`[Authorize]`；每個端點標註 `[Authorize(Policy = BasicPermissionNames.<Table>Read/Create/Update/Delete)]`。
    - 只接收 DTO，回傳 `ApiResponse<T>`；分頁用 `ApiResponse.Paged`；操作者以 `User.GetBasicUserId()` 傳入 Service。
@@ -95,12 +95,13 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
 
 1. `src/views/<Feature>/`：
    - `types.ts`：`<Table>ListItem`、`<Table>Detail`、`<Table>FormData`（與後端 DTO 同名，屬性 camelCase；`updatedAt: string | null`）。
-   - `api.ts`：`get<Feature>(query)`、`get<Table>(id)`、`get<Table>BasicSyslogs(id)`（回傳 `BasicSyslogHistoryResult`）、`create<Table>(form)`、`update<Table>(id, form)`、`delete<Table>(id)`。
-   - `routes.ts`：path 與 name 為 `<feature>`，`meta: { title: '<功能名稱>', basicPermission: '<table>.read' }`。
+   - `api.ts`：`get<Feature>(query)`、`get<Table>(id)`、`get<Table>BasicSyslogs(id)`、`create<Table>(form)`、`update<Table>(id, form)`、`delete<Table>(id)`；一律使用 `src/api/http.ts` 的 `get`／`post`／`put`／`del<T>`，回傳 `ApiResponse<T>`（資料取 `.datas`）。
+   - `routes.ts`：path 與 name 為 `<feature>`，`meta: { title: '<功能名稱>', basicPermission: '<table>.read', menu: { title: '<功能名稱>', description: '<一句說明>', order: <接續最大值> } }`。
    - `components/<Table>FormModal.vue`：新增與編輯共用，`defineModel` 控制開關、`item` prop（`null` 為新增），開啟時重設表單，送出以事件交回 `Index.vue`；前端檢查只為使用體驗，長度上限與後端一致。
-   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見 `rules\frontend-ui.md`）；「歷程」以 `BasicSyslogModal` 顯示；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
+   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見 `rules\frontend-ui.md`；兩種權限都沒有時整個操作欄不渲染）；「歷程」以 `BasicSyslogModal` 顯示（傳入 `:load="() => get<Table>BasicSyslogs(id)"`，元件自行載入）；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
    - 一律以 `{{ }}` 輸出，不使用 `v-html`；站內路徑以 `import.meta.env.BASE_URL` 組成。
-2. `src/router/index.ts` 匯入並加入路由；`src/layouts/menu.ts` 加入選單項目（`basicPermission: '<table>.read'`，首頁卡片同步出現）。
+2. 不需修改 `src/router/index.ts` 與 `src/layouts/menu.ts`：`src/router/featureRoutes.ts` 自動載入各功能的 `routes.ts`，`meta.menu` 同時產生側邊選單與首頁功能卡片（依 `meta.basicPermission` 過濾）。
+   - 專案沒有 `src/router/featureRoutes.ts`（以舊版範本建立）時，沿用該專案的寫法：`src/router/index.ts` 匯入並加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）；`api.ts` 與 `BasicSyslogModal` 的用法也比照該專案既有的 `BasicUsers`。
 
 ### 2.3 Migration
 

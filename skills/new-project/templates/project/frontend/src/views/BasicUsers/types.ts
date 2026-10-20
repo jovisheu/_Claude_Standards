@@ -5,6 +5,8 @@ export interface BasicUserListItem {
   displayName: string
   isActive: boolean
   basicGroupNames: string[]
+  isManageable: boolean
+  isSelf: boolean
   createdAt: string
   updatedAt: string | null
 }
@@ -16,6 +18,8 @@ export interface BasicUserDetail {
   displayName: string
   isActive: boolean
   basicGroupIds: number[]
+  isManageable: boolean
+  isSelf: boolean
   createdAt: string
   updatedAt: string | null
 }
@@ -23,11 +27,10 @@ export interface BasicUserDetail {
 export interface BasicGroupOption {
   id: number
   name: string
-  /** 操作者是否可指派此群組 */
-  assignable: boolean
+  isAssignable: boolean
 }
 
-/** 新增／編輯表單送出的資料（編輯時 username 不送出、password 留白表示不變更） */
+/** 表單資料（新增時含帳號；編輯時密碼留白表示不變更） */
 export interface BasicUserFormData {
   username: string
   email: string

@@ -12,7 +12,7 @@ export interface ApiResponse<T = unknown> {
 
 /** 分頁查詢條件 */
 export interface PagedQuery {
-  keyword?: string
   page: number
   pageSize: number
+  keyword?: string
 }

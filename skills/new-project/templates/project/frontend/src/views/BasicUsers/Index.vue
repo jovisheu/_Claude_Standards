@@ -1,11 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
-import { isHandled } from '@/api/http'
 import AppPagination from '@/components/AppPagination.vue'
 import BasicSyslogModal from '@/components/BasicSyslogModal.vue'
+import { isHandled } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
-import type { BasicSyslogHistoryResult } from '@/types/basicSyslog'
 import { formatModifiedAt } from '@/utils/format'
 import BasicUserFormModal from './components/BasicUserFormModal.vue'
 import {
@@ -25,32 +24,33 @@ const message = useMessageStore()
 const canCreate = computed(() => auth.hasBasicPermission('basicuser.create'))
 const canUpdate = computed(() => auth.hasBasicPermission('basicuser.update'))
 const canDelete = computed(() => auth.hasBasicPermission('basicuser.delete'))
+// 沒有編輯、刪除權限時不顯示操作欄（歷程需要編輯權限）
+const hasActions = computed(() => canUpdate.value || canDelete.value)
+const columnCount = computed(() => (hasActions.value ? 7 : 6))
 
-const query = reactive({ keyword: '', page: 1, pageSize: 10 })
+const query = reactive({ page: 1, pageSize: 10, keyword: '' })
 const items = ref<BasicUserListItem[]>([])
 const totalCount = ref(0)
 const totalPages = ref(0)
 const loading = ref(false)
 
-const modalOpen = ref(false)
+const formOpen = ref(false)
 const editingItem = ref<BasicUserDetail | null>(null)
 const basicGroupOptions = ref<BasicGroupOption[]>([])
 const submitting = ref(false)
 
-const historyOpen = ref(false)
-const historyTitle = ref('')
-const historyResult = ref<BasicSyslogHistoryResult | null>(null)
-const historyLoading = ref(false)
+const syslogOpen = ref(false)
+const syslogTarget = ref<BasicUserListItem | null>(null)
 
 async function load() {
   loading.value = true
   try {
-    const result = await getBasicUsers({ keyword: query.keyword.trim() || undefined, page: query.page, pageSize: query.pageSize })
-    items.value = result.datas ?? []
-    totalCount.value = result.totalCount
-    totalPages.value = result.totalPages
+    const response = await getBasicUsers({ page: query.page, pageSize: query.pageSize, keyword: query.keyword || undefined })
+    items.value = response.datas ?? []
+    totalCount.value = response.totalCount
+    totalPages.value = response.totalPages
   } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
   } finally {
     loading.value = false
   }
@@ -66,66 +66,46 @@ function changePage(page: number) {
   load()
 }
 
-async function openCreate() {
+async function openForm(item: BasicUserListItem | null) {
   try {
-    basicGroupOptions.value = await getBasicGroupOptions()
-    editingItem.value = null
-    modalOpen.value = true
+    const [options, detail] = await Promise.all([getBasicGroupOptions(), item ? getBasicUser(item.id) : Promise.resolve(null)])
+    basicGroupOptions.value = options.datas ?? []
+    editingItem.value = detail?.datas ?? null
+    formOpen.value = true
   } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
   }
 }
 
-async function openEdit(id: number) {
-  try {
-    const [detail, options] = await Promise.all([getBasicUser(id), getBasicGroupOptions()])
-    basicGroupOptions.value = options
-    editingItem.value = detail
-    modalOpen.value = true
-  } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
-  }
-}
-
-async function save(form: BasicUserFormData) {
+async function save(data: BasicUserFormData) {
   submitting.value = true
   try {
-    const result = editingItem.value ? await updateBasicUser(editingItem.value.id, form) : await createBasicUser(form)
-    modalOpen.value = false
-    await message.success(result.message || '儲存成功')
+    const response = editingItem.value ? await updateBasicUser(editingItem.value.id, data) : await createBasicUser(data)
+    formOpen.value = false
+    await message.success(response.message || '儲存成功')
     await load()
   } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
   } finally {
     submitting.value = false
   }
 }
 
 async function remove(item: BasicUserListItem) {
-  if (!(await message.confirm(`確定要刪除使用者「${item.displayName}」嗎？`))) return
+  if (!(await message.confirm(`確定要刪除使用者「${item.displayName}（${item.username}）」嗎？`))) return
   try {
-    const result = await deleteBasicUser(item.id)
-    await message.success(result.message || '刪除成功')
+    const response = await deleteBasicUser(item.id)
+    await message.success(response.message || '刪除成功')
     if (items.value.length === 1 && query.page > 1) query.page--
     await load()
   } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
   }
 }
 
-async function openHistory(item: BasicUserListItem) {
-  historyTitle.value = `異動歷程：${item.displayName}（${item.username}）`
-  historyResult.value = null
-  historyLoading.value = true
-  historyOpen.value = true
-  try {
-    historyResult.value = await getBasicUserBasicSyslogs(item.id)
-  } catch (error) {
-    historyOpen.value = false
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
-  } finally {
-    historyLoading.value = false
-  }
+function openSyslog(item: BasicUserListItem) {
+  syslogTarget.value = item
+  syslogOpen.value = true
 }
 
 onMounted(load)
@@ -133,19 +113,22 @@ onMounted(load)
 
 <template>
   <div class="space-y-4">
-    <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-      <h2 class="text-xl font-semibold text-gray-900">使用者管理</h2>
-      <button v-if="canCreate" type="button" class="btn-primary" @click="openCreate">＋ 新增使用者</button>
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <h1 class="text-xl font-bold text-gray-900">使用者管理</h1>
+      <button v-if="canCreate" type="button" class="btn-primary" @click="openForm(null)">新增使用者</button>
     </div>
 
-    <form class="card flex flex-col gap-2 p-4 sm:flex-row" @submit.prevent="search">
-      <input v-model="query.keyword" class="form-input sm:max-w-xs" maxlength="50" placeholder="帳號、顯示名稱或 Email" />
-      <button type="submit" class="btn-secondary">查詢</button>
+    <form class="card flex flex-wrap items-end gap-3 p-4" @submit.prevent="search">
+      <div class="w-full sm:w-72">
+        <label for="basic-user-keyword" class="form-label">關鍵字</label>
+        <input id="basic-user-keyword" v-model.trim="query.keyword" class="form-input" maxlength="50" placeholder="帳號、顯示名稱或 Email" />
+      </div>
+      <button type="submit" class="btn-primary" :disabled="loading">查詢</button>
     </form>
 
     <div class="card overflow-hidden">
       <div class="overflow-x-auto">
-        <table class="table-base">
+        <table class="data-table">
           <thead>
             <tr>
               <th>帳號</th>
@@ -154,49 +137,36 @@ onMounted(load)
               <th>群組</th>
               <th>狀態</th>
               <th>異動時間</th>
-              <th v-if="canUpdate || canDelete" class="text-right">操作</th>
+              <th v-if="hasActions" class="w-1">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-gray-100">
+          <tbody>
             <tr v-if="loading">
-              <td colspan="7" class="py-8 text-center text-gray-400">載入中…</td>
+              <td :colspan="columnCount" class="py-8 text-center text-gray-500">載入中…</td>
             </tr>
             <tr v-else-if="items.length === 0">
-              <td colspan="7" class="py-8 text-center text-gray-400">查無資料</td>
+              <td :colspan="columnCount" class="py-8 text-center text-gray-500">查無資料</td>
             </tr>
-            <tr v-for="item in items" v-else :key="item.id" class="hover:bg-gray-50">
-              <td class="font-medium">{{ item.username }}</td>
+            <tr v-for="item in loading ? [] : items" :key="item.id">
+              <td>{{ item.username }}</td>
               <td>{{ item.displayName }}</td>
-              <td>{{ item.email }}</td>
+              <td class="break-all">{{ item.email }}</td>
+              <td>{{ item.basicGroupNames.join('、') || '-' }}</td>
               <td>
                 <span
-                  v-for="name in item.basicGroupNames"
-                  :key="name"
-                  class="mr-1 mb-1 inline-block rounded bg-primary-50 px-2 py-0.5 text-xs text-primary-700"
-                >
-                  {{ name }}
-                </span>
-              </td>
-              <td>
-                <span
-                  class="rounded px-2 py-0.5 text-xs"
-                  :class="item.isActive ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-600'"
+                  class="rounded px-2 py-0.5 text-xs font-medium"
+                  :class="item.isActive ? 'bg-primary-100 text-primary-800' : 'bg-gray-200 text-gray-600'"
                 >
                   {{ item.isActive ? '啟用' : '停用' }}
                 </span>
               </td>
               <td class="whitespace-nowrap">{{ formatModifiedAt(item) }}</td>
-              <td v-if="canUpdate || canDelete" class="text-right whitespace-nowrap">
-                <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openEdit(item.id)">編輯</button>
-                <button v-if="canUpdate" type="button" class="btn-link mr-3" @click="openHistory(item)">歷程</button>
-                <button
-                  v-if="canDelete && item.id !== auth.basicUser?.id"
-                  type="button"
-                  class="text-sm text-red-600 hover:underline"
-                  @click="remove(item)"
-                >
-                  刪除
-                </button>
+              <td v-if="hasActions">
+                <div class="flex gap-1">
+                  <button v-if="canUpdate && item.isManageable" type="button" class="btn-secondary btn-sm" @click="openForm(item)">編輯</button>
+                  <button v-if="canUpdate" type="button" class="btn-secondary btn-sm" @click="openSyslog(item)">歷程</button>
+                  <button v-if="canDelete && item.isManageable && !item.isSelf" type="button" class="btn-danger btn-sm" @click="remove(item)">刪除</button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -206,14 +176,17 @@ onMounted(load)
     </div>
 
     <BasicUserFormModal
-      v-model="modalOpen"
+      v-model="formOpen"
       :item="editingItem"
       :basic-group-options="basicGroupOptions"
-      :is-self="editingItem?.id === auth.basicUser?.id"
       :submitting="submitting"
       @submit="save"
     />
-
-    <BasicSyslogModal v-model="historyOpen" :title="historyTitle" :result="historyResult" :loading="historyLoading" />
+    <BasicSyslogModal
+      v-if="syslogTarget"
+      v-model="syslogOpen"
+      :title="`異動歷程：${syslogTarget.displayName}（${syslogTarget.username}）`"
+      :load="() => getBasicUserBasicSyslogs(syslogTarget!.id)"
+    />
   </div>
 </template>

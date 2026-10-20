@@ -1,242 +1,219 @@
-using System.Threading.RateLimiting;
 using backend.Data;
 using backend.Extensions;
 using backend.Services.Auth;
-using backend.Services.Captcha;
 using backend.Services.BasicExceptionlogs;
 using backend.Services.BasicGroups;
-using backend.Services.Mail;
-using backend.Services.Password;
 using backend.Services.BasicPermissions;
 using backend.Services.BasicSyslogs;
-using backend.Services.Token;
 using backend.Services.BasicUsers;
+using backend.Services.Captcha;
+using backend.Services.Mail;
+using backend.Services.Password;
+using backend.Services.Token;
 using backend.Settings;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi;
 
-// 工具模式：dotnet run -- encrypt "<明文>"，以輸出目錄 appsettings.json 的金鑰產生加密值
+// 工具模式：dotnet run -- encrypt "<明文>"，以輸出目錄 appsettings.json 的 AES256Key／AES256IV 產生加密值
 if (args.Length >= 1 && args[0] == "encrypt")
 {
-    if (args.Length < 2)
+    if (args.Length < 2 || string.IsNullOrEmpty(args[1]))
     {
         Console.Error.WriteLine("用法：dotnet run -- encrypt \"<明文>\"");
         return 1;
     }
 
-    var toolConfig = new ConfigurationBuilder()
+    var toolConfiguration = new ConfigurationBuilder()
         .SetBasePath(AppContext.BaseDirectory)
         .AddJsonFile("appsettings.json", optional: false)
         .Build();
-    Console.WriteLine(ConfigEncryption.Encrypt(toolConfig, args[1]));
+    var (toolKey, toolIv) = ConfigEncryption.ReadKey(toolConfiguration);
+    Console.WriteLine(ConfigEncryption.Encrypt(args[1], toolKey, toolIv));
     return 0;
 }
 
 var builder = WebApplication.CreateBuilder(args);
+var configuration = builder.Configuration;
 
-// 不回傳 Server 標頭
-builder.WebHost.ConfigureKestrel(options => options.AddServerHeader = false);
+// 機密設定於註冊服務前解密，只存於區域變數（不寫回 IConfiguration，避免設定檔重新載入時還原成加密值）
+var (aesKey, aesIv) = ConfigEncryption.ReadKey(configuration);
+string DecryptSetting(string name)
+{
+    var cipherText = configuration[name];
+    if (string.IsNullOrEmpty(cipherText))
+    {
+        throw new InvalidOperationException($"缺少設定值 {name}");
+    }
 
-// 機密於註冊服務前解密，只存於區域變數，不寫回 IConfiguration（避免重新載入時還原成加密值）
-var connectionString = ConfigEncryption.DecryptRequired(builder.Configuration, "ConnectionStrings:DefaultConnection");
-var jwtKey = ConfigEncryption.DecryptRequired(builder.Configuration, "Jwt:Key");
-var smtpPassword = ConfigEncryption.DecryptOptional(builder.Configuration, "Smtp:Password");
+    return ConfigEncryption.Decrypt(cipherText, aesKey, aesIv, name);
+}
 
-builder.Services.Configure<JwtSettings>(builder.Configuration.GetSection(JwtSettings.SectionName));
-builder.Services.PostConfigure<JwtSettings>(s => s.Key = jwtKey);
-builder.Services.Configure<SecuritySettings>(builder.Configuration.GetSection(SecuritySettings.SectionName));
-builder.Services.Configure<AppSettings>(builder.Configuration.GetSection(AppSettings.SectionName));
-builder.Services.Configure<SmtpSettings>(builder.Configuration.GetSection(SmtpSettings.SectionName));
-builder.Services.Configure<BasicExceptionlogSettings>(builder.Configuration.GetSection(BasicExceptionlogSettings.SectionName));
-builder.Services.Configure<BasicSyslogSettings>(builder.Configuration.GetSection(BasicSyslogSettings.SectionName));
-builder.Services.PostConfigure<SmtpSettings>(s => s.Password = smtpPassword);
+var connectionString = DecryptSetting("ConnectionStrings:DefaultConnection");
+var jwtKey = DecryptSetting("Jwt:Key");
+var smtpPassword = string.IsNullOrEmpty(configuration["Smtp:Password"]) ? string.Empty : DecryptSetting("Smtp:Password");
 
-var jwtSettings = builder.Configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
-var securitySettings = builder.Configuration.GetSection(SecuritySettings.SectionName).Get<SecuritySettings>() ?? new SecuritySettings();
+var jwtSettings = configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
+var securitySettings = configuration.GetSection(SecuritySettings.SectionName).Get<SecuritySettings>() ?? new SecuritySettings();
 
-// 系統異動歷程：每個 DbContext 掛上攔截器自動記錄新增／修改／刪除，
-// 並以把關攔截器拒絕不經 SaveChanges 的資料異動（ExecuteUpdate／ExecuteDelete／原生 SQL）
+// 不回傳 Server 標頭；限制請求大小
+const long maxRequestBodySize = 1024 * 1024;
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.AddServerHeader = false;
+    options.Limits.MaxRequestBodySize = maxRequestBodySize;
+});
+builder.Services.Configure<IISServerOptions>(options => options.MaxRequestBodySize = maxRequestBodySize);
+
+// 設定
+builder.Services.Configure<AppSettings>(configuration.GetSection(AppSettings.SectionName));
+builder.Services.Configure<JwtSettings>(configuration.GetSection(JwtSettings.SectionName));
+builder.Services.PostConfigure<JwtSettings>(options => options.Key = jwtKey);
+builder.Services.Configure<SecuritySettings>(configuration.GetSection(SecuritySettings.SectionName));
+builder.Services.Configure<SmtpSettings>(configuration.GetSection(SmtpSettings.SectionName));
+builder.Services.PostConfigure<SmtpSettings>(options => options.Password = smtpPassword);
+builder.Services.Configure<BasicExceptionlogSettings>(configuration.GetSection(BasicExceptionlogSettings.SectionName));
+builder.Services.Configure<BasicSyslogSettings>(configuration.GetSection(BasicSyslogSettings.SectionName));
+
+// 資料庫：SQL Server 2019 基準（相容性層級 150）；異動歷程攔截器與把關以 Scoped 註冊並掛上
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<BasicSyslogSaveTracker>();
 builder.Services.AddScoped<BasicSyslogContext>();
 builder.Services.AddScoped<BasicSyslogInterceptor>();
 builder.Services.AddScoped<BasicSyslogCommandGuard>();
 builder.Services.AddDbContext<AppDbContext>((sp, options) => options
-    // 以 SQL Server 2019（相容性層級 150）為基準，避免 EF Core 產生 2019 不支援的語法
-    .UseSqlServer(connectionString, o => o.UseCompatibilityLevel(150))
+    .UseSqlServer(connectionString, sql => sql.UseCompatibilityLevel(150))
     .AddInterceptors(sp.GetRequiredService<BasicSyslogInterceptor>(), sp.GetRequiredService<BasicSyslogCommandGuard>()));
-builder.Services.AddMemoryCache();
 
 // 服務
+builder.Services.AddMemoryCache();
+builder.Services.AddSingleton<IBasicExceptionlogsService, BasicExceptionlogsService>();
+builder.Services.AddSingleton<IBasicSyslogsService, BasicSyslogsService>();
+builder.Services.AddScoped<IBasicSyslogHistoryService, BasicSyslogHistoryService>();
 builder.Services.AddScoped<IBasicPermissionsService, BasicPermissionsService>();
 builder.Services.AddScoped<IPasswordService, PasswordService>();
-builder.Services.AddScoped<IAuthService, AuthService>();
-builder.Services.AddScoped<IBasicUsersService, BasicUsersService>();
-builder.Services.AddScoped<IBasicGroupsService, BasicGroupsService>();
-builder.Services.AddScoped<IBasicSyslogHistoryService, BasicSyslogHistoryService>();
-builder.Services.AddSingleton<ICaptchaService, CaptchaService>();
 builder.Services.AddSingleton<ITokenService, TokenService>();
+builder.Services.AddSingleton<ICaptchaService, CaptchaService>();
 builder.Services.AddSingleton<MailTemplateStore>();
 builder.Services.AddSingleton<MailQueue>();
 builder.Services.AddSingleton<IMailService, MailService>();
-builder.Services.AddHostedService<MailBackgroundService>();
-builder.Services.AddSingleton<IBasicExceptionlogsService, BasicExceptionlogsService>();
+builder.Services.AddScoped<IAuthService, AuthService>();
+builder.Services.AddScoped<IBasicUsersService, BasicUsersService>();
+builder.Services.AddScoped<IBasicGroupsService, BasicGroupsService>();
 builder.Services.AddHostedService<BasicExceptionlogArchiveService>();
-builder.Services.AddSingleton<IBasicSyslogsService, BasicSyslogsService>();
+builder.Services.AddHostedService<MailBackgroundService>();
 
-// Controller 與模型驗證
+// Controller：時間格式、模型驗證失敗與無 Body 的錯誤一律回 ApiResponse
 builder.Services.AddControllers(options =>
-{
-    // 不使用隱含的 Required（訊息為英文），一律於 DTO 明確標註
-    options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
-    var messages = options.ModelBindingMessageProvider;
-    messages.SetAttemptedValueIsInvalidAccessor((_, _) => "欄位格式不正確");
-    messages.SetMissingBindRequiredValueAccessor(_ => "缺少必要欄位");
-    messages.SetMissingKeyOrValueAccessor(() => "缺少必要欄位");
-    messages.SetMissingRequestBodyRequiredValueAccessor(() => "請求資料格式不正確");
-    messages.SetNonPropertyAttemptedValueIsInvalidAccessor(_ => "欄位格式不正確");
-    messages.SetNonPropertyUnknownValueIsInvalidAccessor(() => "欄位格式不正確");
-    messages.SetNonPropertyValueMustBeANumberAccessor(() => "欄位須為數字");
-    messages.SetUnknownValueIsInvalidAccessor(_ => "欄位格式不正確");
-    messages.SetValueIsInvalidAccessor(_ => "欄位格式不正確");
-    messages.SetValueMustBeANumberAccessor(_ => "欄位須為數字");
-    messages.SetValueMustNotBeNullAccessor(_ => "欄位不可為空白");
-})
-// 回傳時間不含毫秒與時區
-.AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new LocalDateTimeJsonConverter()));
-builder.Services.Configure<ApiBehaviorOptions>(options =>
-{
-    options.InvalidModelStateResponseFactory = ModelValidationResponse.Create;
-    // 框架錯誤（405、415 等）不轉成 ProblemDetails，交由 StatusCodePages 統一回傳 ApiResponse
-    options.SuppressMapClientErrors = true;
-});
+    {
+        // 不使用隱含的 Required（訊息為英文），一律於 DTO 明確標註
+        options.SuppressImplicitRequiredAttributeForNonNullableReferenceTypes = true;
 
-// JWT 驗證：簽章、Issuer、Audience、期限
+        // 查詢字串、路由等繫結錯誤改為中文通用訊息，不回傳欄位名稱與輸入值
+        var messages = options.ModelBindingMessageProvider;
+        messages.SetAttemptedValueIsInvalidAccessor((_, _) => "欄位格式不正確");
+        messages.SetMissingBindRequiredValueAccessor(_ => "缺少必要欄位");
+        messages.SetMissingKeyOrValueAccessor(() => "缺少必要欄位");
+        messages.SetMissingRequestBodyRequiredValueAccessor(() => "請求資料格式不正確");
+        messages.SetNonPropertyAttemptedValueIsInvalidAccessor(_ => "欄位格式不正確");
+        messages.SetNonPropertyUnknownValueIsInvalidAccessor(() => "欄位格式不正確");
+        messages.SetNonPropertyValueMustBeANumberAccessor(() => "欄位須為數字");
+        messages.SetUnknownValueIsInvalidAccessor(_ => "欄位格式不正確");
+        messages.SetValueIsInvalidAccessor(_ => "欄位格式不正確");
+        messages.SetValueMustBeANumberAccessor(_ => "欄位須為數字");
+        messages.SetValueMustNotBeNullAccessor(_ => "欄位不可為空白");
+    })
+    .AddJsonOptions(options => options.JsonSerializerOptions.Converters.Add(new LocalDateTimeJsonConverter()))
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressMapClientErrors = true;
+        options.InvalidModelStateResponseFactory = ModelValidationResponse.Create;
+    });
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new LocalDateTimeJsonConverter()));
+
+// JWT：驗證簽章、Issuer、Audience 與有效期限；未登入回 401 ApiResponse
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
         options.MapInboundClaims = false;
         options.TokenValidationParameters = new TokenValidationParameters
         {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = TokenService.CreateSigningKey(jwtKey),
             ValidateIssuer = true,
             ValidIssuer = jwtSettings.Issuer,
             ValidateAudience = true,
             ValidAudience = jwtSettings.Audience,
             ValidateLifetime = true,
             RequireExpirationTime = true,
-            ClockSkew = TimeSpan.FromSeconds(30),
+            ValidateIssuerSigningKey = true,
+            IssuerSigningKey = TokenService.CreateSigningKey(jwtKey),
             ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
-            NameClaimType = JwtRegisteredClaimNames.UniqueName
+            ClockSkew = TimeSpan.FromSeconds(30),
+            NameClaimType = JwtRegisteredClaimNames.UniqueName,
         };
         options.Events = new JwtBearerEvents
         {
-            // 停用或已刪除的使用者，即使 Token 未過期也視為未登入
+            // 停用、已刪除或密碼已變更（安全戳記不符）的使用者，即使 Token 未過期也視為未登入（回 401，前端導回登入頁）
             OnTokenValidated = async context =>
             {
-                var sub = context.Principal?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                var basicUserId = context.Principal?.FindBasicUserId();
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
-                if (!int.TryParse(sub, out var basicUserId) || !await db.BasicUser.AnyAsync(u => u.Id == basicUserId && u.IsActive))
+                var passwordHash = basicUserId is null
+                    ? null
+                    : await db.BasicUser.AsNoTracking()
+                        .Where(u => u.Id == basicUserId && u.IsActive)
+                        .Select(u => u.PasswordHash)
+                        .FirstOrDefaultAsync();
+                var securityStamp = context.Principal?.FindFirst(TokenService.SecurityStampClaim)?.Value;
+                if (passwordHash is null || !TokenService.IsSecurityStampValid(passwordHash, securityStamp))
                 {
-                    context.Fail("使用者不存在或已停用");
+                    context.Fail("使用者不存在、已停用或密碼已變更");
                 }
             },
             OnChallenge = async context =>
             {
                 context.HandleResponse();
-                await context.Response.WriteApiResponseAsync(StatusCodes.Status401Unauthorized, "尚未登入或登入已逾時，請重新登入");
-            }
+                await ApiResponseWriter.WriteAsync(context.HttpContext, StatusCodes.Status401Unauthorized, ApiResponseWriter.DefaultMessage(StatusCodes.Status401Unauthorized));
+            },
         };
     });
 
-// 預設須登入；權限 Policy 名稱與權限名稱相同，一律查資料庫判斷
-builder.Services.AddAuthorization(options =>
-{
-    options.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build();
-    foreach (var basicPermission in BasicPermissionNames.All)
-    {
-        options.AddPolicy(basicPermission, policy => policy.RequireAuthenticatedUser().AddRequirements(new BasicPermissionRequirement(basicPermission)));
-    }
-});
-builder.Services.AddScoped<IAuthorizationHandler, BasicPermissionAuthorizationHandler>();
-builder.Services.AddSingleton<Microsoft.AspNetCore.Authorization.IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
+// 授權：所有端點預設須登入（Fallback Policy），權限查資料庫；無權限回 403 ApiResponse
+builder.Services.AddBasicPermissionAuthorization();
+builder.Services.AddSingleton<IAuthorizationMiddlewareResultHandler, ApiAuthorizationResultHandler>();
 
-// 速率限制（每 IP）
-builder.Services.AddRateLimiter(options =>
-{
-    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.OnRejected = async (context, cancellationToken) =>
-    {
-        await context.HttpContext.Response.WriteApiResponseAsync(StatusCodes.Status429TooManyRequests, "請求過於頻繁，請稍後再試", cancellationToken);
-    };
-    options.AddPolicy(RateLimitPolicies.Login, httpContext => RateLimitPartition.GetFixedWindowLimiter(
-        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = securitySettings.Login.RateLimitPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0
-        }));
-    options.AddPolicy(RateLimitPolicies.Captcha, httpContext => RateLimitPartition.GetFixedWindowLimiter(
-        httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            PermitLimit = securitySettings.Login.CaptchaRateLimitPerMinute,
-            Window = TimeSpan.FromMinutes(1),
-            QueueLimit = 0
-        }));
-});
+builder.Services.AddApiRateLimiter(securitySettings.RateLimit);
 
-// Swagger 僅限 Development 註冊
+// Swagger 僅限 Development
 if (builder.Environment.IsDevelopment())
 {
     builder.Services.AddEndpointsApiExplorer();
-    builder.Services.AddSwaggerGen(c =>
-    {
-        c.SwaggerDoc("v1", new OpenApiInfo { Title = "__PROJECT_NAME__ API", Version = "v1" });
-        c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
-        {
-            Type = SecuritySchemeType.Http,
-            Scheme = "bearer",
-            BearerFormat = "JWT",
-            Description = "輸入登入取得的 JWT"
-        });
-        c.AddSecurityRequirement(document => new OpenApiSecurityRequirement
-        {
-            [new OpenApiSecuritySchemeReference("Bearer", document)] = []
-        });
-    });
+    builder.Services.AddSwaggerGen();
 }
 
 var app = builder.Build();
 
-// 啟動時載入郵件範本，檔案遺失即無法啟動
+// 郵件範本於啟動時載入，檔案遺失即無法啟動
 app.Services.GetRequiredService<MailTemplateStore>();
 
 app.UseMiddleware<ExceptionHandlingMiddleware>();
 app.UseMiddleware<SecurityHeadersMiddleware>();
 
-// API 的框架錯誤（405、415 等）沒有 Body 時，統一回傳 ApiResponse
+if (!app.Environment.IsDevelopment())
+{
+    app.UseHsts();
+    app.UseHttpsRedirection();
+}
+
+// /api 下沒有 Body 的錯誤（405、415 等）轉為 ApiResponse
 app.UseStatusCodePages(async context =>
 {
-    var response = context.HttpContext.Response;
-    if (context.HttpContext.Request.Path.StartsWithSegments("/api"))
+    var httpContext = context.HttpContext;
+    if (ApiResponseWriter.IsApiRequest(httpContext))
     {
-        var message = response.StatusCode switch
-        {
-            StatusCodes.Status404NotFound => "找不到指定的資源",
-            StatusCodes.Status405MethodNotAllowed => "不支援的請求方法",
-            StatusCodes.Status415UnsupportedMediaType => "請求資料格式不正確",
-            >= 500 => "系統發生異常，請聯繫管理員",
-            _ => "請求失敗"
-        };
-        await response.WriteApiResponseAsync(response.StatusCode, message);
+        var statusCode = httpContext.Response.StatusCode;
+        await ApiResponseWriter.WriteAsync(httpContext, statusCode, ApiResponseWriter.DefaultMessage(statusCode));
     }
 });
 
@@ -245,22 +222,17 @@ if (app.Environment.IsDevelopment())
     app.UseSwagger();
     app.UseSwaggerUI();
 }
-else
-{
-    app.UseHsts();
-    app.UseHttpsRedirection();
-}
 
-// SPA 靜態檔：index.html 不快取（assets 檔名含 hash，可正常快取）
+// SPA 的 index.html 不快取（assets 檔名含 hash，可正常快取）
 var spaFileOptions = new StaticFileOptions
 {
-    OnPrepareResponse = ctx =>
+    OnPrepareResponse = context =>
     {
-        if (string.Equals(ctx.File.Name, "index.html", StringComparison.OrdinalIgnoreCase))
+        if (string.Equals(context.File.Name, "index.html", StringComparison.OrdinalIgnoreCase))
         {
-            ctx.Context.Response.Headers.CacheControl = "no-cache";
+            context.Context.Response.Headers.CacheControl = "no-cache";
         }
-    }
+    },
 };
 app.UseStaticFiles(spaFileOptions);
 
@@ -271,21 +243,20 @@ app.UseAuthorization();
 
 app.MapControllers();
 
-// 不存在的 API 回 404，不落入 SPA fallback
-app.Map("/api/{**path}", (HttpContext context) =>
-        context.Response.WriteApiResponseAsync(StatusCodes.Status404NotFound, "找不到指定的資源"))
-    .AllowAnonymous();
+RequestDelegate notFound = context => ApiResponseWriter.WriteAsync(context, StatusCodes.Status404NotFound, ApiResponseWriter.DefaultMessage(StatusCodes.Status404NotFound));
 
-// 非 Development 時 Swagger 路徑一律 404，不落入 SPA fallback
+// 不存在的 API 回 404（不落入 SPA fallback）
+app.Map("/api/{**path}", notFound).AllowAnonymous();
+
+// 正式環境 /swagger 明確回 404
 if (!app.Environment.IsDevelopment())
 {
-    app.Map("/swagger/{**path}", () => Results.NotFound()).AllowAnonymous();
+    app.Map("/swagger/{**path}", notFound).AllowAnonymous();
 }
 
+// 不存在的檔案路徑回 404（不被預設授權擋成 401）；其餘路徑交給 SPA
+app.MapFallback("{**path:file}", notFound).AllowAnonymous();
 app.MapFallbackToFile("index.html", spaFileOptions).AllowAnonymous();
 
-// 不存在的檔案路徑（含副檔名）回 404，避免被預設授權 Policy 擋成 401
-app.MapFallback("{**path:file}", () => Results.NotFound()).AllowAnonymous();
-
-app.Run();
+await app.RunAsync();
 return 0;

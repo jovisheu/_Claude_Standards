@@ -38,7 +38,7 @@ dotnet list <backend 絕對路徑>\backend.csproj package --vulnerable --include
 node D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\hooks\check-standards.js <專案或範圍絕對路徑>
 ```
 
-腳本涵蓋可機械判斷的樣式（`UtcNow`、同步 `SaveChanges`、`ExecuteUpdate／Delete／Sql`、`Random`、SQL／Log 字串插值、`AllowAnyOrigin`、`BinaryFormatter`／`TypeNameHandling`、SQL Server 2022 語法、`UseCompatibilityLevel(150)`、Controller 缺 `[Authorize]`、Models namespace、空 catch、`v-html`、寫死根路徑、`.csproj`／`package.json` 浮動版本、`appsettings` 明文連線字串、`.env` 機密與非 ASCII、`.ps1` BOM；完整清單見腳本）。每筆命中都要讀上下文判斷是否真的有問題（如 `v-html` 的資料來源是否可信、`Random` 是否用於安全用途）。
+腳本涵蓋可機械判斷的樣式（`UtcNow`、同步 `SaveChanges`、`ExecuteUpdate／Delete／Sql`、`Random`、SQL／Log 字串插值、`AllowAnyOrigin`、`BinaryFormatter`／`TypeNameHandling`、`System.Net.Mail`、SQL Server 2022 語法、`UseCompatibilityLevel(150)`、Controller 缺 `[Authorize]`、Models namespace、空 catch、`v-html`、寫死根路徑、`.csproj`／`package.json` 浮動版本、`appsettings` 明文連線字串、`.env` 機密與非 ASCII、`.ps1` BOM；完整清單見腳本）。每筆命中都要讀上下文判斷是否真的有問題（如 `v-html` 的資料來源是否可信、`Random` 是否用於安全用途）。
 
 腳本未涵蓋、須讀上下文判斷的樣式，以 Grep 搜尋（排除目錄同上）：
 
@@ -69,7 +69,7 @@ node D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\hooks\check-standards.js <�
 
 自動化抓不到的部分，對照規範逐類閱讀相關程式：
 
-- 身分驗證：驗證碼是否後端比對且一次性、登入限流與鎖定、錯誤訊息是否透露帳號存在；並逐條對照 `auth-baseline.md`（鎖定、密碼規則與統一方法、逾期變更、忘記密碼、前端登入狀態）。
+- 身分驗證：驗證碼是否後端比對且一次性、登入與忘記密碼是否都檢查驗證碼（共用 `CaptchaEnabled` 開關）、登入限流與鎖定、錯誤訊息是否透露帳號存在；並逐條對照 `auth-baseline.md`（鎖定、密碼規則與統一方法、逾期變更、忘記密碼、前端登入狀態）。
 - 存取控制：Service 層是否檢查資料層級權限（越權、提權、對自己的危險操作）；前端無 CUD 權限或資料受保護時，對應按鈕、欄位、勾選項是否以 `v-if` 不渲染（以 Grep 搜尋 `:disabled=` 與 `v-show`，與權限、受保護、本人相關者列為不符合；送出中、分頁邊界等暫時狀態不在此限）。
 - 記錄：安全事件是否記錄；Log 是否含密碼、Token、重設連結、個資；未處理例外與背景作業失敗是否寫入 `BasicExceptionlog`（另建 DbContext、寫入失敗不丟例外），轉存檔名是否移除不合法字元、`Logs\` 是否不在 `wwwroot` 下；新增、修改、刪除是否寫入 `BasicSyslog`（無同步 `SaveChanges`、無 `ExecuteUpdate`／`ExecuteDelete`／`ExecuteSql` 異動、無自行 `new AppDbContext`），`Program.cs` 是否以 `AddInterceptors` 同時掛上 `BasicSyslogInterceptor` 與 `BasicSyslogCommandGuard`，`AllowLogArchiveDelete` 是否只出現在系統紀錄表的轉存服務，`BasicSyslogDescription` 與 `Describe(...)` 的說明是否不含機密或不必要的個資（寫入端點未標說明列為待辦，不算不符合），新增的機密欄位是否已列入 `BasicSyslogInterceptor.MaskedProperties`。
 - 例外：是否統一由全域處理、不洩漏 StackTrace。

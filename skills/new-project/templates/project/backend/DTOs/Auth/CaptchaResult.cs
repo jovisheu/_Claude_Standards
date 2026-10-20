@@ -6,4 +6,6 @@ public class CaptchaResult
 
     /// <summary>PNG 圖片（data URL）</summary>
     public string Image { get; set; } = string.Empty;
+
+    public int ExpireSeconds { get; set; }
 }

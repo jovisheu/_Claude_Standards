@@ -1,38 +1,46 @@
 namespace backend.Services.BasicExceptionlogs;
 
 /// <summary>
-/// 背景轉存系統錯誤紀錄：啟動時執行一次，之後每天一次（IIS 回收或閒置關閉後，下次啟動時補做）
+/// 系統錯誤紀錄轉存背景服務：啟動時執行一次，之後每天一次；失敗時寫入紀錄，不中斷服務
 /// </summary>
 public class BasicExceptionlogArchiveService(
-    IBasicExceptionlogsService basicExceptionlogs,
+    IBasicExceptionlogsService basicExceptionlogsService,
     ILogger<BasicExceptionlogArchiveService> logger) : BackgroundService
 {
+    private const string MethodName = "BasicExceptionlogArchiveService.ExecuteAsync";
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        await ArchiveAsync(stoppingToken);
+
         using var timer = new PeriodicTimer(TimeSpan.FromDays(1));
         try
         {
-            do
+            while (await timer.WaitForNextTickAsync(stoppingToken))
             {
-                try
-                {
-                    var count = await basicExceptionlogs.ArchiveAsync(stoppingToken);
-                    if (count > 0)
-                    {
-                        logger.LogInformation("系統錯誤紀錄已轉存：{Count} 筆", count);
-                    }
-                }
-                catch (Exception ex) when (ex is not OperationCanceledException)
-                {
-                    // 背景作業失敗：寫入 Log 與 BasicExceptionlog（資料庫無法寫入時 WriteAsync 只寫 Log，不丟出例外）
-                    logger.LogError(ex, "系統錯誤紀錄轉存失敗");
-                    await basicExceptionlogs.WriteAsync(ex, $"{nameof(BasicExceptionlogArchiveService)}.{nameof(ExecuteAsync)}", null);
-                }
-            } while (await timer.WaitForNextTickAsync(stoppingToken));
+                await ArchiveAsync(stoppingToken);
+            }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // 應用程式關閉
+            // 應用程式停止
+        }
+    }
+
+    private async Task ArchiveAsync(CancellationToken stoppingToken)
+    {
+        try
+        {
+            await basicExceptionlogsService.ArchiveAsync(stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            // 應用程式停止
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "系統錯誤紀錄轉存失敗");
+            await basicExceptionlogsService.WriteAsync(ex, MethodName);
         }
     }
 }

@@ -1,6 +1,5 @@
 using System.Text.Encodings.Web;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Text.Unicode;
 using backend.Extensions;
 using backend.Models;
@@ -13,43 +12,43 @@ using Microsoft.EntityFrameworkCore.Storage;
 namespace backend.Data;
 
 /// <summary>
-/// 系統異動歷程：自動記錄每次 SaveChangesAsync 的新增／修改／刪除，與業務資料在同一交易中寫入 BasicSyslog。
-/// 一次存檔一筆歷程：全部為新增記 C、全部為刪除記 D、其餘記 U；異動前後資料為 JSON 陣列 [{ "Table", "Data" }]。
-/// 不經 SaveChanges 的異動由 BasicSyslogCommandGuard 拒絕執行，兩者共用 BasicSyslogSaveTracker 判斷存檔狀態。
-/// 以 Scoped 註冊（每個 DbContext 一個實例）
+/// 系統紀錄表以外的新增、修改、刪除自動寫入 BasicSyslog（一次存檔一筆），與業務資料在同一交易；
+/// 同步 SaveChanges 遇到需記錄的異動會丟出例外。以 Scoped 註冊並掛在 AppDbContext 上。
 /// </summary>
 public class BasicSyslogInterceptor(
-    IHttpContextAccessor httpContextAccessor, IBasicSyslogsService basicSyslogs, BasicSyslogSaveTracker tracker,
-    BasicSyslogContext basicSyslogContext) : SaveChangesInterceptor
+    BasicSyslogSaveTracker tracker,
+    BasicSyslogContext syslogContext,
+    IHttpContextAccessor httpContextAccessor,
+    IBasicSyslogsService basicSyslogsService) : SaveChangesInterceptor
 {
-    /// <summary>
-    /// 遮蔽的機密欄位（{資料表}.{欄位}）：照常記錄異動，但值以 *** 取代（null 仍為 null，可看出設定或清除）；
-    /// 新增含機密欄位（密碼、token、金鑰等）的資料表時須加入
-    /// </summary>
-    private static readonly HashSet<string> MaskedProperties =
-        ["BasicUser.PasswordHash", "BasicUser.PasswordResetTokenHash", "BasicUser.PasswordResetExpiresAt"];
+    /// <summary>機密欄位（{資料表}.{欄位}），歷程中的值以 *** 遮蔽</summary>
+    public static readonly IReadOnlySet<string> MaskedProperties = new HashSet<string>(StringComparer.Ordinal)
+    {
+        $"{nameof(BasicUser)}.{nameof(BasicUser.PasswordHash)}",
+        $"{nameof(BasicUser)}.{nameof(BasicUser.PasswordResetTokenHash)}",
+    };
 
     private const string MaskedValue = "***";
-
-    // 異動後與異動前不同時加註，讓歷程查詢能判斷遮蔽欄位有變更
     private const string MaskedChangedValue = "***（已變更）";
+    private const string TimeFormat = "yyyy-MM-dd HH:mm:ss.fff";
+    private const int MethodNameMaxLength = 200;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         Encoder = JavaScriptEncoder.Create(UnicodeRanges.All),
-        Converters = { new LocalDateTimeConverter() }
     };
 
-    private PendingSyslog? _pending;
-    private IDbContextTransaction? _transaction;
+    private List<CapturedEntry>? _pending;
+    private IDbContextTransaction? _ownedTransaction;
+    private bool _writingLog;
 
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
-        // 同步存檔無法在同一交易中補寫歷程，有需記錄的異動時一律使用 SaveChangesAsync
-        if (eventData.Context != null && GetAuditableEntries(eventData.Context).Count > 0)
+        if (eventData.Context is not null && Capture(eventData.Context).Count > 0)
         {
-            throw new InvalidOperationException("有需記錄異動歷程的資料時，須使用 SaveChangesAsync");
+            throw new InvalidOperationException("需記錄異動歷程的存檔須使用 SaveChangesAsync");
         }
+
         tracker.EnterSave();
         return result;
     }
@@ -60,175 +59,256 @@ public class BasicSyslogInterceptor(
         return result;
     }
 
-    public override void SaveChangesFailed(DbContextErrorEventData eventData) => tracker.ExitSave();
+    public override void SaveChangesFailed(DbContextErrorEventData eventData)
+    {
+        tracker.ExitSave();
+    }
 
-    public override void SaveChangesCanceled(DbContextEventData eventData) => tracker.ExitSave();
-
-    public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(
-        DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    public override async ValueTask<InterceptionResult<int>> SavingChangesAsync(DbContextEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
     {
         tracker.EnterSave();
         try
         {
-            var db = eventData.Context;
-            if (db == null) return result;
-
-            var entries = GetAuditableEntries(db);
-            if (entries.Count == 0) return result;
-
-            // 寫入歷程前，先將超過保留天數的舊紀錄轉存為 txt
-            await basicSyslogs.ArchiveIfDueAsync();
-
-            var action = entries.All(e => e.State == EntityState.Added) ? "C"
-                : entries.All(e => e.State == EntityState.Deleted) ? "D"
-                : "U";
-            var before = entries.Where(e => e.State != EntityState.Added).Select(e => Snapshot(e, original: true, [])).ToList();
-            // 存檔後修改狀態會被清除，先記下有變更的遮蔽欄位
-            var changedMasked = entries
-                .SelectMany(e => e.Properties.Where(p => p.IsModified && IsMasked(e, p)).Select(p => (e.Entity, p.Metadata.Name)))
-                .ToHashSet();
-            // 有需記錄的異動時才取出說明；只寫入系統紀錄表的存檔不會用掉 Describe 指定的說明
-            _pending = new PendingSyslog(
-                action, before, entries.Where(e => e.State != EntityState.Deleted).ToList(), changedMasked, basicSyslogContext.Take());
-
-            // 業務資料與歷程在同一交易；呼叫端已開啟交易時沿用，由呼叫端提交
-            if (db.Database.CurrentTransaction == null)
+            var context = eventData.Context;
+            if (context is null || _writingLog)
             {
-                _transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+                return result;
             }
+
+            var entries = Capture(context);
+            if (entries.Count == 0)
+            {
+                _pending = null;
+                return result;
+            }
+
+            // 超過保留天數的歷程先轉存（失敗不影響本次異動；不傳入請求的取消權杖，避免寫檔後、刪除前被中斷而重複轉存）
+            await basicSyslogsService.ArchiveIfDueAsync();
+
+            if (context.Database.CurrentTransaction is null)
+            {
+                _ownedTransaction = await context.Database.BeginTransactionAsync(cancellationToken);
+            }
+
+            _pending = entries;
             return result;
         }
         catch
         {
-            // SavingChanges 丟出例外時 EF Core 不會呼叫 SaveChangesFailed，於此結束存檔狀態
+            // SavingChanges 丟出例外時 EF Core 不會呼叫 SaveChangesFailed，於此還原計數與交易
             tracker.ExitSave();
+            await RollbackAsync();
             throw;
         }
     }
 
-    public override async ValueTask<int> SavedChangesAsync(
-        SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
+    public override async ValueTask<int> SavedChangesAsync(SaveChangesCompletedEventData eventData, int result, CancellationToken cancellationToken = default)
     {
+        var context = eventData.Context;
+        if (context is null || _writingLog || _pending is null)
+        {
+            tracker.ExitSave();
+            return result;
+        }
+
+        var entries = _pending;
+        _pending = null;
+
+        var log = BuildLog(entries);
+        _writingLog = true;
         try
         {
-            var db = eventData.Context;
-            var pending = _pending;
-            if (db == null || pending == null) return result;
-            _pending = null;
-
-            try
-            {
-                var httpContext = httpContextAccessor.HttpContext;
-                var username = httpContext?.User.Identity?.Name;
-                db.Set<BasicSyslog>().Add(new BasicSyslog
-                {
-                    Action = pending.Action,
-                    MethodName = httpContext.GetMethodName(),
-                    // 說明：Service 指定 > 端點預設 > null
-                    Description = pending.Description
-                        ?? httpContext?.GetEndpoint()?.Metadata.GetMetadata<BasicSyslogDescriptionAttribute>()?.Description,
-                    BeforeData = JsonSerializer.Serialize(pending.Before, JsonOptions),
-                    // 存檔後才取得新增資料的 Id，異動後資料於此時產生
-                    AfterData = JsonSerializer.Serialize(
-                        pending.AfterEntries.Select(e => Snapshot(e, original: false, pending.ChangedMasked)), JsonOptions),
-                    Username = string.IsNullOrEmpty(username) ? null : username,
-                    CreatedAt = DateTime.Now
-                });
-                await db.SaveChangesAsync(cancellationToken);
-
-                if (_transaction != null)
-                {
-                    await _transaction.CommitAsync(cancellationToken);
-                }
-            }
-            catch
-            {
-                // 歷程寫入失敗時業務資料一併還原，不留下無歷程的異動
-                if (_transaction != null)
-                {
-                    await _transaction.RollbackAsync(CancellationToken.None);
-                }
-                throw;
-            }
-            finally
-            {
-                await DisposeTransactionAsync();
-            }
-
-            return result;
+            context.Set<BasicSyslog>().Add(log);
+            await context.SaveChangesAsync(cancellationToken);
         }
         finally
         {
-            // 歷程本身的存檔（巢狀）完成後才結束外層存檔狀態
-            tracker.ExitSave();
+            _writingLog = false;
         }
+
+        // 歷程寫入失敗時例外會往外拋，由 SaveChangesFailedAsync 還原交易
+        if (_ownedTransaction is not null)
+        {
+            await _ownedTransaction.CommitAsync(cancellationToken);
+            await _ownedTransaction.DisposeAsync();
+            _ownedTransaction = null;
+        }
+
+        tracker.ExitSave();
+        return result;
     }
 
-    public override async Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
+    // 取消存檔（OperationCanceledException）時 EF Core 只呼叫 Canceled、不呼叫 Failed，須同樣還原計數與交易，
+    // 否則存檔計數會卡住，BasicSyslogCommandGuard 在此範圍內會全部放行
+    public override void SaveChangesCanceled(DbContextEventData eventData)
     {
         tracker.ExitSave();
-        // 業務資料存檔失敗：未提交的交易於 Dispose 時還原
-        if (_pending == null) return;
+        if (_writingLog)
+        {
+            return;
+        }
+
         _pending = null;
-        await DisposeTransactionAsync();
+        if (_ownedTransaction is not null)
+        {
+            try
+            {
+                _ownedTransaction.Rollback();
+            }
+            finally
+            {
+                _ownedTransaction.Dispose();
+                _ownedTransaction = null;
+            }
+        }
     }
 
     public override async Task SaveChangesCanceledAsync(DbContextEventData eventData, CancellationToken cancellationToken = default)
     {
         tracker.ExitSave();
-        if (_pending == null) return;
+        if (_writingLog)
+        {
+            return;
+        }
+
         _pending = null;
-        await DisposeTransactionAsync();
+        await RollbackAsync();
     }
 
-    private async Task DisposeTransactionAsync()
+    public override async Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
     {
-        if (_transaction == null) return;
-        await _transaction.DisposeAsync();
-        _transaction = null;
+        tracker.ExitSave();
+        if (_writingLog)
+        {
+            // 歷程本身寫入失敗：由外層存檔的失敗處理還原交易
+            return;
+        }
+
+        _pending = null;
+        await RollbackAsync();
     }
 
-    /// <summary>系統紀錄表以外的新增、刪除，以及有任何欄位變更的修改（含只改機密欄位）</summary>
-    private static List<EntityEntry> GetAuditableEntries(DbContext db) =>
-        db.ChangeTracker.Entries()
-            .Where(e => !BasicSyslogSaveTracker.LogTables.Contains(GetTableName(e)))
-            .Where(e => e.State is EntityState.Added or EntityState.Deleted
-                || (e.State == EntityState.Modified && e.Properties.Any(p => p.IsModified)))
-            .ToList();
-
-    private static bool IsMasked(EntityEntry entry, PropertyEntry property) =>
-        MaskedProperties.Contains($"{GetTableName(entry)}.{property.Metadata.Name}");
-
-    private static string GetTableName(EntityEntry entry) => entry.Metadata.GetTableName() ?? entry.Metadata.ClrType.Name;
-
-    private static Dictionary<string, object?> Snapshot(EntityEntry entry, bool original, HashSet<(object, string)> changedMasked)
+    private async Task RollbackAsync()
     {
-        var data = new Dictionary<string, object?>();
+        if (_ownedTransaction is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _ownedTransaction.RollbackAsync();
+        }
+        finally
+        {
+            await _ownedTransaction.DisposeAsync();
+            _ownedTransaction = null;
+        }
+    }
+
+    /// <summary>擷取需記錄的異動與異動前資料（系統紀錄表除外）</summary>
+    private static List<CapturedEntry> Capture(DbContext context)
+    {
+        // EF Core 於攔截器之後才偵測變更，先自行偵測
+        context.ChangeTracker.DetectChanges();
+
+        var list = new List<CapturedEntry>();
+        foreach (var entry in context.ChangeTracker.Entries())
+        {
+            if (entry.State is not (EntityState.Added or EntityState.Modified or EntityState.Deleted))
+            {
+                continue;
+            }
+
+            var table = entry.Metadata.GetTableName() ?? entry.Metadata.ClrType.Name;
+            if (BasicSyslogSaveTracker.LogTables.Contains(table))
+            {
+                continue;
+            }
+
+            var before = entry.State == EntityState.Added ? null : Snapshot(entry, table, useOriginal: true, changedMasked: null);
+            var changedMasked = entry.Properties
+                .Where(p => IsMasked(table, p.Metadata.Name) && (entry.State == EntityState.Added || p.IsModified))
+                .Select(p => p.Metadata.Name)
+                .ToHashSet(StringComparer.Ordinal);
+
+            list.Add(new CapturedEntry(entry, entry.State, table, before, changedMasked));
+        }
+
+        return list;
+    }
+
+    private BasicSyslog BuildLog(List<CapturedEntry> entries)
+    {
+        var beforeData = new List<object>();
+        var afterData = new List<object>();
+        foreach (var captured in entries)
+        {
+            if (captured.Before is not null)
+            {
+                beforeData.Add(new { Table = captured.Table, Data = captured.Before });
+            }
+
+            if (captured.State != EntityState.Deleted)
+            {
+                // 新增的資料於存檔後才有 Id，存檔後再取值
+                afterData.Add(new { Table = captured.Table, Data = Snapshot(captured.Entry, captured.Table, useOriginal: false, captured.ChangedMasked) });
+            }
+        }
+
+        var action = entries.All(e => e.State == EntityState.Added) ? "C"
+            : entries.All(e => e.State == EntityState.Deleted) ? "D"
+            : "U";
+
+        var httpContext = httpContextAccessor.HttpContext;
+        var description = syslogContext.Take()
+            ?? httpContext?.GetEndpoint()?.Metadata.GetMetadata<BasicSyslogDescriptionAttribute>()?.Description;
+
+        // MethodName 欄位上限 200，超過會使歷程寫入失敗並連帶還原業務資料
+        var methodName = httpContext?.GetMethodName() ?? "System";
+        return new BasicSyslog
+        {
+            Action = action,
+            MethodName = methodName.Length > MethodNameMaxLength ? methodName[..MethodNameMaxLength] : methodName,
+            Description = description,
+            BeforeData = JsonSerializer.Serialize(beforeData, JsonOptions),
+            AfterData = JsonSerializer.Serialize(afterData, JsonOptions),
+            Username = httpContext?.GetUsername(),
+            CreatedAt = DateTime.Now,
+        };
+    }
+
+    private static Dictionary<string, object?> Snapshot(EntityEntry entry, string table, bool useOriginal, HashSet<string>? changedMasked)
+    {
+        var data = new Dictionary<string, object?>(StringComparer.Ordinal);
         foreach (var property in entry.Properties)
         {
-            var value = original ? property.OriginalValue : property.CurrentValue;
-            if (IsMasked(entry, property) && value != null)
+            var name = property.Metadata.Name;
+            var value = useOriginal ? property.OriginalValue : property.CurrentValue;
+            if (IsMasked(table, name))
             {
-                value = !original && changedMasked.Contains((entry.Entity, property.Metadata.Name)) ? MaskedChangedValue : MaskedValue;
+                data[name] = value is null ? null
+                    : changedMasked is not null && changedMasked.Contains(name) ? MaskedChangedValue
+                    : MaskedValue;
+                continue;
             }
-            data[property.Metadata.Name] = value;
+
+            data[name] = value switch
+            {
+                DateTime dateTime => dateTime.ToString(TimeFormat),
+                _ => value,
+            };
         }
-        return new Dictionary<string, object?> { ["Table"] = GetTableName(entry), ["Data"] = data };
+
+        return data;
     }
 
-    /// <summary>
-    /// 時間一律以本地時間格式輸出：新增時的值帶時區（Local）、自資料庫讀出的值不帶（Unspecified），統一格式避免前後不一致
-    /// </summary>
-    private sealed class LocalDateTimeConverter : JsonConverter<DateTime>
-    {
-        public override DateTime Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
-            reader.GetDateTime();
+    private static bool IsMasked(string table, string property) => MaskedProperties.Contains($"{table}.{property}");
 
-        public override void Write(Utf8JsonWriter writer, DateTime value, JsonSerializerOptions options) =>
-            writer.WriteStringValue(value.ToString("yyyy-MM-dd HH:mm:ss.fff"));
-    }
-
-    private sealed record PendingSyslog(
-        string Action, List<Dictionary<string, object?>> Before, List<EntityEntry> AfterEntries,
-        HashSet<(object, string)> ChangedMasked, string? Description);
+    private sealed record CapturedEntry(
+        EntityEntry Entry,
+        EntityState State,
+        string Table,
+        Dictionary<string, object?>? Before,
+        HashSet<string> ChangedMasked);
 }

@@ -1,42 +1,42 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 
 export type MessageType = 'success' | 'error' | 'info' | 'confirm'
 
 interface MessageItem {
   type: MessageType
-  title: string
   text: string
+  title?: string
   resolve: (value: boolean) => void
 }
 
 /**
- * 訊息視窗：操作結果一律以訊息視窗顯示，不使用頁面內提示列
+ * 操作結果一律以訊息視窗顯示；多則訊息依序顯示（佇列），
+ * 避免確認視窗開啟時被其他錯誤訊息覆蓋而誤判為「取消」
  */
 export const useMessageStore = defineStore('message', () => {
   const queue = ref<MessageItem[]>([])
-  const current = ref<MessageItem | null>(null)
+  const current = computed(() => queue.value[0] ?? null)
+  const visible = computed(() => current.value !== null)
 
-  function next() {
-    current.value = queue.value.shift() ?? null
-  }
-
-  function push(type: MessageType, text: string, title: string): Promise<boolean> {
-    return new Promise((resolve) => {
+  function open(type: MessageType, text: string, title?: string): Promise<boolean> {
+    return new Promise<boolean>((resolve) => {
       queue.value.push({ type, text, title, resolve })
-      if (!current.value) next()
     })
   }
 
   function close(result: boolean) {
-    current.value?.resolve(result)
-    next()
+    const item = queue.value.shift()
+    item?.resolve(result)
   }
 
-  const success = (text: string, title = '操作成功') => push('success', text, title).then(() => undefined)
-  const error = (text: string, title = '操作失敗') => push('error', text, title).then(() => undefined)
-  const info = (text: string, title = '提示') => push('info', text, title).then(() => undefined)
-  const confirm = (text: string, title = '請確認') => push('confirm', text, title)
-
-  return { current, close, success, error, info, confirm }
+  return {
+    current,
+    visible,
+    success: (text: string, title?: string) => open('success', text, title),
+    error: (text: string, title?: string) => open('error', text, title),
+    info: (text: string, title?: string) => open('info', text, title),
+    confirm: (text: string, title?: string) => open('confirm', text, title),
+    close,
+  }
 })

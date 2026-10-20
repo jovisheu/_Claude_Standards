@@ -6,20 +6,29 @@ import type { BasicGroupDetail, BasicGroupFormData, BasicPermissionItem } from '
 const props = defineProps<{
   /** null 為新增 */
   item: BasicGroupDetail | null
-  basicPermissions: BasicPermissionItem[]
+  basicPermissionOptions: BasicPermissionItem[]
   submitting: boolean
 }>()
-
-const emit = defineEmits<{
-  submit: [form: BasicGroupFormData]
-}>()
-
+const emit = defineEmits<{ submit: [data: BasicGroupFormData] }>()
 const open = defineModel<boolean>({ required: true })
 
-const isEdit = computed(() => props.item !== null)
+const form = reactive<BasicGroupFormData>({ name: '', description: '', basicPermissionIds: [] })
 const isProtected = computed(() => props.item?.isProtected ?? false)
 
-const form = reactive<BasicGroupFormData>({ name: '', description: '', basicPermissionIds: [] })
+/** 依模組分組；受保護群組或不可授予的權限只顯示文字，不渲染勾選框 */
+const modules = computed(() => {
+  const map = new Map<string, BasicPermissionItem[]>()
+  for (const permission of props.basicPermissionOptions) {
+    const list = map.get(permission.module) ?? []
+    list.push(permission)
+    map.set(permission.module, list)
+  }
+  return [...map.entries()].map(([name, permissions]) => ({
+    name,
+    editable: isProtected.value ? [] : permissions.filter((p) => p.isAssignable),
+    readonly: permissions.filter((p) => (isProtected.value || !p.isAssignable) && form.basicPermissionIds.includes(p.id)),
+  }))
+})
 
 // 開啟時重設表單
 watch(open, (value) => {
@@ -29,78 +38,44 @@ watch(open, (value) => {
   form.basicPermissionIds = [...(props.item?.basicPermissionIds ?? [])]
 })
 
-/** 依模組分組顯示 */
-const modules = computed(() => {
-  const map = new Map<string, BasicPermissionItem[]>()
-  for (const basicPermission of props.basicPermissions) {
-    const list = map.get(basicPermission.module) ?? []
-    list.push(basicPermission)
-    map.set(basicPermission.module, list)
-  }
-  return [...map.entries()].map(([name, items]) => ({ name, items }))
-})
-
-/** 受保護群組的權限不可修改；只能授予自己擁有的權限（不可變更者不渲染勾選框，只以文字顯示現況） */
-function isBasicPermissionEditable(basicPermission: BasicPermissionItem) {
-  return !isProtected.value && basicPermission.grantable
-}
-
-function hasBasicPermission(basicPermission: BasicPermissionItem) {
-  return form.basicPermissionIds.includes(basicPermission.id)
-}
-
 function submit() {
   emit('submit', { ...form, basicPermissionIds: [...form.basicPermissionIds] })
 }
 </script>
 
 <template>
-  <BaseModal v-model="open" :title="isEdit ? '編輯群組' : '新增群組'" width="max-w-2xl">
+  <BaseModal v-model="open" :title="item ? '編輯群組' : '新增群組'" width="max-w-2xl">
     <form id="basic-group-form" class="space-y-4" @submit.prevent="submit">
       <div>
-        <label class="form-label" for="basic-group-name">群組名稱</label>
-        <input id="basic-group-name" v-model="form.name" class="form-input" maxlength="50" />
+        <label for="basic-group-name" class="form-label">群組名稱</label>
+        <input id="basic-group-name" v-model.trim="form.name" class="form-input" maxlength="50" required />
       </div>
       <div>
-        <label class="form-label" for="basic-group-description">說明</label>
-        <textarea id="basic-group-description" v-model="form.description" class="form-input" rows="2" maxlength="200" />
+        <label for="basic-group-description" class="form-label">說明</label>
+        <input id="basic-group-description" v-model.trim="form.description" class="form-input" maxlength="200" />
       </div>
       <div>
         <span class="form-label">權限</span>
-        <p v-if="isProtected" class="mb-2 text-xs text-amber-600">系統管理員群組擁有全部權限，不可修改</p>
+        <p v-if="isProtected" class="mb-2 text-sm text-amber-700">系統管理員群組擁有全部權限，不可修改。</p>
         <div class="space-y-3">
-          <fieldset v-for="mod in modules" :key="mod.name" class="rounded-md border border-gray-200 p-3">
-            <legend class="px-1 text-sm font-medium text-gray-700">{{ mod.name }}</legend>
-            <div class="grid gap-2 sm:grid-cols-4">
-              <template v-for="basicPermission in mod.items" :key="basicPermission.id">
-                <label
-                  v-if="isBasicPermissionEditable(basicPermission)"
-                  class="inline-flex items-center gap-2 text-sm text-gray-700"
-                  :title="basicPermission.name"
-                >
-                  <input v-model="form.basicPermissionIds" type="checkbox" class="h-4 w-4" :value="basicPermission.id" />
-                  {{ basicPermission.description || basicPermission.name }}
-                </label>
-                <!-- 不可變更：不渲染勾選框，已擁有的權限以文字顯示 -->
-                <span
-                  v-else-if="hasBasicPermission(basicPermission)"
-                  class="inline-flex items-center gap-1 text-sm text-gray-500"
-                  :title="basicPermission.name"
-                >
-                  ✓ {{ basicPermission.description || basicPermission.name }}
-                </span>
-              </template>
+          <div v-for="module in modules" :key="module.name" class="rounded-md border border-gray-200 p-3">
+            <p class="mb-2 text-sm font-medium text-gray-800">{{ module.name }}</p>
+            <div class="flex flex-wrap gap-x-4 gap-y-2">
+              <label v-for="permission in module.editable" :key="permission.id" class="inline-flex items-center gap-2 text-sm">
+                <input v-model="form.basicPermissionIds" type="checkbox" :value="permission.id" class="h-4 w-4 accent-primary-600" />
+                {{ permission.description || permission.name }}
+              </label>
             </div>
-          </fieldset>
+            <p v-if="module.readonly.length > 0" class="mt-2 text-sm text-gray-600">
+              {{ isProtected ? '已擁有' : '不可變更' }}：{{ module.readonly.map((p) => p.description || p.name).join('、') }}
+            </p>
+          </div>
         </div>
       </div>
     </form>
-
     <template #footer>
       <button type="button" class="btn-secondary" @click="open = false">取消</button>
-      <button type="submit" form="basic-group-form" class="btn-primary" :disabled="submitting">
-        {{ submitting ? '儲存中…' : '儲存' }}
-      </button>
+      <button type="submit" form="basic-group-form" class="btn-primary" :disabled="submitting">{{ submitting ? '儲存中…' : '儲存' }}</button>
     </template>
   </BaseModal>
 </template>

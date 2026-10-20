@@ -1,8 +1,6 @@
-import http from '@/api/http'
-import type { ApiResponse } from '@/types/api'
-import type { ChangeExpiredPasswordRequest } from './types'
+import { post } from '@/api/http'
+import type { ChangeExpiredPasswordFormData } from './types'
 
-export async function changeExpiredPassword(request: ChangeExpiredPasswordRequest) {
-  const { data } = await http.post<ApiResponse>('/auth/change-expired-password', request)
-  return data
+export function changeExpiredPassword(data: ChangeExpiredPasswordFormData) {
+  return post<null>('/auth/change-expired-password', data)
 }

@@ -4,103 +4,94 @@ import { useRouter } from 'vue-router'
 import { isHandled } from '@/api/http'
 import { useAuthOptions } from '@/composables/useAuthOptions'
 import { useMessageStore } from '@/stores/message'
-import { getCaptcha } from '@/views/Login/api'
-import type { Captcha } from '@/views/Login/types'
-import { forgotPassword } from './api'
+import { forgotPassword, getCaptcha } from './api'
+import type { CaptchaResult } from './types'
 
-const router = useRouter()
 const message = useMessageStore()
-const { options, ready } = useAuthOptions()
-
+const router = useRouter()
+const { options, load } = useAuthOptions()
 const form = reactive({ username: '', email: '', captchaCode: '' })
-const captcha = ref<Captcha | null>(null)
+const captcha = ref<CaptchaResult | null>(null)
 const submitting = ref(false)
 
 async function refreshCaptcha() {
   form.captchaCode = ''
   if (!options.value?.captchaEnabled) return
   try {
-    captcha.value = await getCaptcha()
+    captcha.value = (await getCaptcha()).datas
   } catch {
-    captcha.value = null
+    // 錯誤已由 interceptor 處理
   }
 }
 
-async function submit() {
-  if (!form.username.trim() || !form.email.trim()) {
-    await message.error('請輸入帳號與 Email')
-    return
+onMounted(async () => {
+  try {
+    await load()
+    await refreshCaptcha()
+  } catch {
+    // 錯誤已由 interceptor 處理
   }
-  if (options.value?.captchaEnabled && !form.captchaCode.trim()) {
-    await message.error('請輸入驗證碼')
-    return
-  }
+})
 
+async function submit() {
   submitting.value = true
   try {
-    const result = await forgotPassword({
-      username: form.username.trim(),
-      email: form.email.trim(),
+    const response = await forgotPassword({
+      username: form.username,
+      email: form.email,
       captchaId: captcha.value?.captchaId,
-      captchaCode: form.captchaCode.trim(),
+      captchaCode: form.captchaCode,
     })
-    await message.success(result.message, '已送出申請')
-    await router.replace({ name: 'login' })
+    await message.success(response.message)
+    await router.push({ name: 'login' })
   } catch (error) {
-    if (!isHandled(error)) await message.error('操作失敗，請再試一次')
+    if (!isHandled(error)) message.error('操作失敗，請再試一次')
+    // 驗證碼為一次性，失敗後重新產生
     await refreshCaptcha()
   } finally {
     submitting.value = false
   }
 }
-
-onMounted(async () => {
-  await ready()
-  await refreshCaptcha()
-})
 </script>
 
 <template>
-  <div class="flex min-h-screen items-center justify-center bg-gradient-to-br from-primary-50 to-gray-100 p-4">
+  <div class="flex min-h-full items-center justify-center bg-gradient-to-br from-primary-50 to-primary-100 p-4">
     <div class="card w-full max-w-sm p-8">
-      <h1 class="mb-1 text-center text-xl font-bold text-gray-900">忘記密碼</h1>
-      <p class="mb-6 text-center text-sm text-gray-500">輸入帳號與註冊的 Email，系統將寄送重設密碼連結</p>
-
+      <h1 class="mb-2 text-xl font-bold text-primary-800">忘記密碼</h1>
+      <p class="mb-5 text-sm text-gray-600">
+        請輸入帳號與註冊的 Email，系統將寄送重設密碼連結<span v-if="options">（{{ options.passwordResetTokenExpireMinutes }} 分鐘內有效）</span>。
+      </p>
       <form class="space-y-4" @submit.prevent="submit">
         <div>
-          <label class="form-label" for="username">帳號</label>
-          <input id="username" v-model="form.username" class="form-input" maxlength="50" autocomplete="username" />
+          <label for="forgot-username" class="form-label">帳號</label>
+          <input id="forgot-username" v-model.trim="form.username" class="form-input" autocomplete="username" maxlength="50" required />
         </div>
         <div>
-          <label class="form-label" for="email">Email</label>
-          <input id="email" v-model="form.email" type="email" class="form-input" maxlength="256" autocomplete="email" />
+          <label for="forgot-email" class="form-label">Email</label>
+          <input id="forgot-email" v-model.trim="form.email" type="email" class="form-input" autocomplete="email" maxlength="256" required />
         </div>
         <div v-if="options?.captchaEnabled">
-          <label class="form-label" for="captcha">驗證碼</label>
-          <div class="flex items-center gap-2">
+          <label for="forgot-captcha" class="form-label">驗證碼</label>
+          <div class="flex gap-2">
             <input
-              id="captcha"
-              v-model="form.captchaCode"
+              id="forgot-captcha"
+              v-model.trim="form.captchaCode"
               class="form-input uppercase"
-              :maxlength="options.captchaLength"
               autocomplete="off"
+              :maxlength="options.captchaLength"
+              required
             />
-            <button type="button" class="shrink-0" title="重新產生驗證碼" @click="refreshCaptcha">
-              <img v-if="captcha" :src="captcha.image" alt="驗證碼" class="h-10 w-[125px] rounded border border-gray-200" />
-              <span v-else class="flex h-10 w-[125px] items-center justify-center rounded border border-gray-200 text-xs text-gray-400">
-                重新產生
-              </span>
+            <button type="button" class="shrink-0 rounded border border-gray-300" title="重新產生驗證碼" @click="refreshCaptcha">
+              <img v-if="captcha" :src="captcha.image" alt="驗證碼" class="h-10" />
+              <span v-else class="block px-3 py-2 text-xs text-gray-500">取得驗證碼</span>
             </button>
           </div>
+          <p class="mt-1 text-xs text-gray-500">看不清楚？點選圖片重新產生</p>
         </div>
-        <p v-if="options" class="text-xs text-gray-500">重設連結 {{ options.resetTokenExpireMinutes }} 分鐘內有效，僅能使用一次。</p>
-        <button type="submit" class="btn-primary w-full" :disabled="submitting">
-          {{ submitting ? '處理中…' : '寄送重設連結' }}
-        </button>
+        <button type="submit" class="btn-primary w-full" :disabled="submitting">{{ submitting ? '送出中…' : '寄送重設連結' }}</button>
       </form>
-
-      <div class="mt-4 text-center">
-        <RouterLink :to="{ name: 'login' }" class="btn-link">返回登入</RouterLink>
+      <div class="mt-4 text-center text-sm">
+        <RouterLink :to="{ name: 'login' }" class="text-primary-700 hover:underline">返回登入</RouterLink>
       </div>
     </div>
   </div>

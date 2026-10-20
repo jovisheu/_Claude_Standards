@@ -1,27 +1,74 @@
-using System.Net;
 using backend.Settings;
+using MailKit.Net.Smtp;
+using MailKit.Security;
 using Microsoft.Extensions.Options;
+using MimeKit;
 
 namespace backend.Services.Mail;
 
-public class MailService(MailQueue queue, MailTemplateStore templates, IOptions<AppSettings> appOptions, ILogger<MailService> logger) : IMailService
+/// <summary>
+/// 郵件服務（Singleton，使用 MailKit）；Smtp:Enabled 為 false 時寫入 PickupDirectory（.eml）不寄出。
+/// Log 不記錄收件人與內文。
+/// </summary>
+public class MailService(
+    IOptions<SmtpSettings> smtpSettings,
+    IOptions<AppSettings> appSettings,
+    MailTemplateStore templateStore,
+    MailQueue queue,
+    IWebHostEnvironment environment,
+    ILogger<MailService> logger) : IMailService
 {
-    public void QueueResetPasswordMail(string toEmail, string displayName, string resetLink, int expireMinutes)
+    private const string ResetPasswordCategory = "重設密碼";
+
+    public void QueueResetPasswordMail(string email, string displayName, string resetUrl, int expireMinutes)
     {
-        var systemName = appOptions.Value.SystemName;
-
-        // 放入 HTML 的動態資料一律先編碼
-        var body = templates.Get(MailTemplateStore.ResetPassword)
-            .Replace("{{SystemName}}", WebUtility.HtmlEncode(systemName))
-            .Replace("{{DisplayName}}", WebUtility.HtmlEncode(displayName))
-            .Replace("{{ResetLink}}", WebUtility.HtmlEncode(resetLink))
-            .Replace("{{ExpireMinutes}}", expireMinutes.ToString());
-
-        var item = new MailItem(toEmail, displayName, $"[{systemName}] 重設密碼通知", body, "重設密碼");
-        if (!queue.TryEnqueue(item))
+        var systemName = appSettings.Value.SystemName;
+        var body = templateStore.Render(MailTemplateStore.ResetPassword, new Dictionary<string, string>
         {
-            // 不記錄收件人與內文
-            logger.LogWarning("郵件佇列已滿，未寄送：{Category}", item.Category);
+            ["SystemName"] = systemName,
+            ["DisplayName"] = displayName,
+            ["ResetUrl"] = resetUrl,
+            ["ExpireMinutes"] = expireMinutes.ToString(),
+        });
+
+        if (!queue.TryEnqueue(new MailMessageItem(email, displayName, $"【{systemName}】重設密碼通知", body, ResetPasswordCategory)))
+        {
+            logger.LogWarning("郵件佇列已滿，捨棄一封郵件：{Category}", ResetPasswordCategory);
         }
+    }
+
+    public async Task SendAsync(MailMessageItem item, CancellationToken cancellationToken)
+    {
+        var settings = smtpSettings.Value;
+
+        var message = new MimeMessage();
+        message.From.Add(new MailboxAddress(settings.SenderName, settings.SenderEmail));
+        message.To.Add(new MailboxAddress(item.ToName, item.ToEmail));
+        message.Subject = item.Subject;
+        message.Body = new BodyBuilder { HtmlBody = item.HtmlBody }.ToMessageBody();
+
+        if (!settings.Enabled)
+        {
+            var directory = Path.Combine(environment.ContentRootPath, settings.PickupDirectory);
+            Directory.CreateDirectory(directory);
+            var fileName = $"{DateTime.Now:yyyyMMddHHmmssfff}_{Guid.NewGuid():N}.eml";
+            await message.WriteToAsync(Path.Combine(directory, fileName), cancellationToken);
+            return;
+        }
+
+        // 465 為隱含 TLS，其餘 SSL 連線使用 STARTTLS
+        using var client = new SmtpClient();
+        var socketOptions = settings.UseSsl
+            ? (settings.Port == 465 ? SecureSocketOptions.SslOnConnect : SecureSocketOptions.StartTls)
+            : SecureSocketOptions.None;
+        await client.ConnectAsync(settings.Host, settings.Port, socketOptions, cancellationToken);
+        if (!string.IsNullOrEmpty(settings.Username))
+        {
+            await client.AuthenticateAsync(settings.Username, settings.Password, cancellationToken);
+        }
+
+        await client.SendAsync(message, cancellationToken);
+        await client.DisconnectAsync(true, cancellationToken);
+        logger.LogInformation("郵件已寄送：{Category}", item.Category);
     }
 }

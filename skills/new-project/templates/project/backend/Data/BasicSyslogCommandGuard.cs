@@ -6,60 +6,54 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 namespace backend.Data;
 
 /// <summary>
-/// 異動歷程把關：BasicSyslog 只能在 SaveChanges 時記錄，因此不經 SaveChanges 的資料異動
-/// （ExecuteUpdate／ExecuteDelete、ExecuteSql 等原生 SQL）一律拒絕執行（fail closed），避免留下無歷程的異動。
-/// 例外：系統紀錄表轉存後的批次刪除（BasicSyslogSaveTracker.AllowLogArchiveDelete）、dotnet ef 設計階段（Migration）。
-/// 以 Scoped 註冊
+/// 把關：不在 SaveChanges 中卻含 INSERT／UPDATE／DELETE／MERGE 的 SQL 一律拒絕（fail closed），
+/// 涵蓋 ExecuteUpdate／ExecuteDelete、ExecuteSql 等不會寫入異動歷程的方式。
+/// 例外：系統紀錄表以 AllowLogArchiveDelete 宣告的批次刪除；dotnet ef（EF.IsDesignTime）。
 /// </summary>
 public partial class BasicSyslogCommandGuard(BasicSyslogSaveTracker tracker) : DbCommandInterceptor
 {
-    // 資料異動關鍵字；排除 [Delete] 等以中括號包住的識別字與 UpdatedAt 等字首相同的名稱
-    [GeneratedRegex(@"(?<![\[\w])(INSERT|UPDATE|DELETE|MERGE)(?![\]\w])", RegexOptions.IgnoreCase)]
-    private static partial Regex DmlPattern();
+    // 資料異動關鍵字；排除 [Update]、[Delete] 等以中括號包住的識別字與 UpdatedAt 等字首相同的名稱
+    [GeneratedRegex(@"(?<![\[\w])(INSERT|UPDATE|DELETE|MERGE)(?![\]\w])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex WriteKeywordRegex();
 
-    [GeneratedRegex(@"(?<![\[\w])(INSERT|UPDATE|MERGE)(?![\]\w])", RegexOptions.IgnoreCase)]
-    private static partial Regex NonDeletePattern();
+    [GeneratedRegex(@"(?<![\[\w])(INSERT|UPDATE|MERGE)(?![\]\w])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex NonDeleteWriteKeywordRegex();
 
+    // SQL 註解行（如 TagWith 產生的 -- 說明）不參與判斷
     [GeneratedRegex(@"^\s*--.*$", RegexOptions.Multiline)]
-    private static partial Regex CommentLine();
+    private static partial Regex CommentLineRegex();
 
-    public override InterceptionResult<int> NonQueryExecuting(
-        DbCommand command, CommandEventData eventData, InterceptionResult<int> result)
+    public override InterceptionResult<DbDataReader> ReaderExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
     {
         Check(command);
         return result;
     }
 
-    public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(
-        DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
+    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
     {
         Check(command);
         return ValueTask.FromResult(result);
     }
 
-    public override InterceptionResult<DbDataReader> ReaderExecuting(
-        DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result)
+    public override InterceptionResult<int> NonQueryExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<int> result)
     {
         Check(command);
         return result;
     }
 
-    public override ValueTask<InterceptionResult<DbDataReader>> ReaderExecutingAsync(
-        DbCommand command, CommandEventData eventData, InterceptionResult<DbDataReader> result, CancellationToken cancellationToken = default)
+    public override ValueTask<InterceptionResult<int>> NonQueryExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<int> result, CancellationToken cancellationToken = default)
     {
         Check(command);
         return ValueTask.FromResult(result);
     }
 
-    public override InterceptionResult<object> ScalarExecuting(
-        DbCommand command, CommandEventData eventData, InterceptionResult<object> result)
+    public override InterceptionResult<object> ScalarExecuting(DbCommand command, CommandEventData eventData, InterceptionResult<object> result)
     {
         Check(command);
         return result;
     }
 
-    public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(
-        DbCommand command, CommandEventData eventData, InterceptionResult<object> result, CancellationToken cancellationToken = default)
+    public override ValueTask<InterceptionResult<object>> ScalarExecutingAsync(DbCommand command, CommandEventData eventData, InterceptionResult<object> result, CancellationToken cancellationToken = default)
     {
         Check(command);
         return ValueTask.FromResult(result);
@@ -67,24 +61,37 @@ public partial class BasicSyslogCommandGuard(BasicSyslogSaveTracker tracker) : D
 
     private void Check(DbCommand command)
     {
-        // SaveChanges 中的指令由 BasicSyslogInterceptor 記錄；dotnet ef（Migration）不經應用程式，不在此把關
-        if (tracker.IsSaving || EF.IsDesignTime) return;
+        if (EF.IsDesignTime || tracker.IsSaving)
+        {
+            return;
+        }
 
-        var sql = CommentLine().Replace(command.CommandText, string.Empty);
-        if (!DmlPattern().IsMatch(sql)) return;
-        if (IsAllowedArchiveDelete(sql)) return;
+        var sql = CommentLineRegex().Replace(command.CommandText, string.Empty);
+        if (!WriteKeywordRegex().IsMatch(sql))
+        {
+            return;
+        }
 
-        throw new InvalidOperationException(
-            "偵測到不經 SaveChangesAsync 的資料異動（ExecuteUpdate／ExecuteDelete／原生 SQL），不會寫入 BasicSyslog，已拒絕執行；請改為載入實體後以 SaveChangesAsync 存檔");
+        if (IsAllowedArchiveDelete(sql))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException("資料異動須載入實體後以 SaveChangesAsync 存檔（以寫入異動歷程），不可使用 ExecuteUpdate／ExecuteDelete 或原生 SQL 異動");
     }
 
-    /// <summary>轉存範圍內，只允許刪除指定的系統紀錄表</summary>
+    /// <summary>只放行已宣告之系統紀錄表的 DELETE</summary>
     private bool IsAllowedArchiveDelete(string sql)
     {
-        var table = tracker.ArchiveTable;
-        return table != null
-            && sql.TrimStart().StartsWith("DELETE", StringComparison.OrdinalIgnoreCase)
-            && sql.Contains($"[{table}]", StringComparison.Ordinal)
-            && !NonDeletePattern().IsMatch(sql);
+        var table = tracker.AllowedArchiveDeleteTable;
+        if (table is null)
+        {
+            return false;
+        }
+
+        var trimmed = sql.TrimStart();
+        return trimmed.StartsWith("DELETE", StringComparison.OrdinalIgnoreCase)
+            && !NonDeleteWriteKeywordRegex().IsMatch(sql)
+            && sql.Contains($"FROM [{table}]", StringComparison.OrdinalIgnoreCase);
     }
 }

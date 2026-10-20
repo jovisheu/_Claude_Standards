@@ -8,27 +8,22 @@ const props = defineProps<{
   /** null 為新增 */
   item: BasicUserDetail | null
   basicGroupOptions: BasicGroupOption[]
-  /** 是否為目前登入者本人（不可停用自己、不可變更自己的群組） */
-  isSelf: boolean
   submitting: boolean
 }>()
-
-const emit = defineEmits<{
-  submit: [form: BasicUserFormData]
-}>()
-
+const emit = defineEmits<{ submit: [data: BasicUserFormData] }>()
 const open = defineModel<boolean>({ required: true })
 
+const form = reactive<BasicUserFormData>({ username: '', email: '', displayName: '', password: '', isActive: true, basicGroupIds: [] })
 const isEdit = computed(() => props.item !== null)
+const isSelf = computed(() => props.item?.isSelf ?? false)
 
-const form = reactive<BasicUserFormData>({
-  username: '',
-  email: '',
-  displayName: '',
-  password: '',
-  isActive: true,
-  basicGroupIds: [],
-})
+// 不可指派的群組與本人的群組只顯示文字，不渲染勾選框
+const editableGroups = computed(() => (isSelf.value ? [] : props.basicGroupOptions.filter((g) => g.isAssignable)))
+const readonlyGroupNames = computed(() =>
+  props.basicGroupOptions
+    .filter((g) => (isSelf.value || !g.isAssignable) && form.basicGroupIds.includes(g.id))
+    .map((g) => g.name),
+)
 
 // 開啟時重設表單
 watch(open, (value) => {
@@ -41,15 +36,6 @@ watch(open, (value) => {
   form.basicGroupIds = [...(props.item?.basicGroupIds ?? [])]
 })
 
-/** 無法指派的群組或本人：不渲染勾選框，保留既有勾選並以文字顯示 */
-function isBasicGroupEditable(basicGroup: BasicGroupOption) {
-  return !props.isSelf && basicGroup.assignable
-}
-
-function hasBasicGroup(basicGroup: BasicGroupOption) {
-  return form.basicGroupIds.includes(basicGroup.id)
-}
-
 function submit() {
   emit('submit', { ...form, basicGroupIds: [...form.basicGroupIds] })
 }
@@ -59,25 +45,20 @@ function submit() {
   <BaseModal v-model="open" :title="isEdit ? '編輯使用者' : '新增使用者'">
     <form id="basic-user-form" class="space-y-4" @submit.prevent="submit">
       <div>
-        <template v-if="isEdit">
-          <span class="form-label">帳號</span>
-          <p class="py-2 text-sm text-gray-900">{{ form.username }}</p>
-        </template>
-        <template v-else>
-          <label class="form-label" for="basic-user-username">帳號</label>
-          <input id="basic-user-username" v-model="form.username" class="form-input" maxlength="50" autocomplete="off" />
-        </template>
+        <label for="basic-user-username" class="form-label">帳號</label>
+        <input v-if="!isEdit" id="basic-user-username" v-model.trim="form.username" class="form-input" maxlength="50" autocomplete="off" required />
+        <p v-else class="text-sm text-gray-800">{{ form.username }}</p>
       </div>
       <div>
-        <label class="form-label" for="basic-user-display-name">顯示名稱</label>
-        <input id="basic-user-display-name" v-model="form.displayName" class="form-input" maxlength="50" />
+        <label for="basic-user-display-name" class="form-label">顯示名稱</label>
+        <input id="basic-user-display-name" v-model.trim="form.displayName" class="form-input" maxlength="50" required />
       </div>
       <div>
-        <label class="form-label" for="basic-user-email">Email</label>
-        <input id="basic-user-email" v-model="form.email" type="email" class="form-input" maxlength="256" />
+        <label for="basic-user-email" class="form-label">Email</label>
+        <input id="basic-user-email" v-model.trim="form.email" type="email" class="form-input" maxlength="256" required />
       </div>
       <div>
-        <label class="form-label" for="basic-user-password">{{ isEdit ? '密碼（留白表示不變更）' : '密碼' }}</label>
+        <label for="basic-user-password" class="form-label">{{ isEdit ? '密碼（留白表示不變更）' : '密碼' }}</label>
         <input
           id="basic-user-password"
           v-model="form.password"
@@ -85,40 +66,34 @@ function submit() {
           class="form-input"
           maxlength="64"
           autocomplete="new-password"
+          :required="!isEdit"
         />
-        <div class="mt-2">
-          <PasswordRules />
-        </div>
+        <div class="mt-1"><PasswordRules /></div>
       </div>
       <div>
-        <!-- 不可停用自己：本人不渲染勾選框 -->
-        <p v-if="isSelf" class="text-sm text-gray-700">狀態：{{ form.isActive ? '啟用' : '停用' }}（不可變更自己的狀態）</p>
-        <label v-else class="inline-flex items-center gap-2 text-sm text-gray-700">
-          <input v-model="form.isActive" type="checkbox" class="h-4 w-4" />
+        <span class="form-label">狀態</span>
+        <label v-if="!isSelf" class="inline-flex items-center gap-2 text-sm">
+          <input v-model="form.isActive" type="checkbox" class="h-4 w-4 accent-primary-600" />
           啟用
         </label>
+        <p v-else class="text-sm text-gray-800">啟用（不可停用自己）</p>
       </div>
       <div>
         <span class="form-label">群組</span>
-        <p v-if="isSelf" class="mb-2 text-xs text-gray-500">不可變更自己的群組</p>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <template v-for="basicGroup in basicGroupOptions" :key="basicGroup.id">
-            <label v-if="isBasicGroupEditable(basicGroup)" class="inline-flex items-center gap-2 text-sm text-gray-700">
-              <input v-model="form.basicGroupIds" type="checkbox" class="h-4 w-4" :value="basicGroup.id" />
-              {{ basicGroup.name }}
-            </label>
-            <!-- 不可變更：不渲染勾選框，已加入的群組以文字顯示 -->
-            <span v-else-if="hasBasicGroup(basicGroup)" class="inline-flex items-center gap-1 text-sm text-gray-500">✓ {{ basicGroup.name }}</span>
-          </template>
+        <div class="flex flex-wrap gap-x-4 gap-y-2">
+          <label v-for="group in editableGroups" :key="group.id" class="inline-flex items-center gap-2 text-sm">
+            <input v-model="form.basicGroupIds" type="checkbox" :value="group.id" class="h-4 w-4 accent-primary-600" />
+            {{ group.name }}
+          </label>
         </div>
+        <p v-if="readonlyGroupNames.length > 0" class="mt-2 text-sm text-gray-600">
+          {{ isSelf ? '目前群組（不可變更自己的群組）' : '不可變更的群組' }}：{{ readonlyGroupNames.join('、') }}
+        </p>
       </div>
     </form>
-
     <template #footer>
       <button type="button" class="btn-secondary" @click="open = false">取消</button>
-      <button type="submit" form="basic-user-form" class="btn-primary" :disabled="submitting">
-        {{ submitting ? '儲存中…' : '儲存' }}
-      </button>
+      <button type="submit" form="basic-user-form" class="btn-primary" :disabled="submitting">{{ submitting ? '儲存中…' : '儲存' }}</button>
     </template>
   </BaseModal>
 </template>

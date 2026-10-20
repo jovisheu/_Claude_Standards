@@ -18,48 +18,47 @@ public class BasicUsersController(IBasicUsersService basicUsersService, IBasicSy
 {
     [HttpGet]
     [Authorize(Policy = BasicPermissionNames.BasicUserRead)]
-    public async Task<ApiResponse<List<BasicUserListItem>>> GetPaged([FromQuery] PagedQuery query)
-        => ApiResponse.Paged(await basicUsersService.GetPagedAsync(query));
+    public async Task<ActionResult<ApiResponse<IReadOnlyList<BasicUserListItem>>>> GetPaged([FromQuery] PagedQuery query)
+        => Ok(ApiResponse.Paged(await basicUsersService.GetPagedAsync(query, User.GetBasicUserId())));
 
     [HttpGet("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicUserRead)]
-    public async Task<ApiResponse<BasicUserDetail>> Get(int id)
-        => ApiResponse<BasicUserDetail>.Ok(await basicUsersService.GetAsync(id));
+    public async Task<ActionResult<ApiResponse<BasicUserDetail>>> Get(int id)
+        => Ok(ApiResponse<BasicUserDetail>.Success(await basicUsersService.GetAsync(id, User.GetBasicUserId())));
 
-    /// <summary>使用者表單的群組選項</summary>
     [HttpGet("basicgroup-options")]
     [Authorize(Policy = BasicPermissionNames.BasicUserRead)]
-    public async Task<ApiResponse<List<BasicGroupOption>>> GetBasicGroupOptions()
-        => ApiResponse<List<BasicGroupOption>>.Ok(await basicUsersService.GetBasicGroupOptionsAsync(User.GetBasicUserId()));
-
-    /// <summary>異動歷程（含使用者與群組的關聯；需編輯權限）</summary>
-    [HttpGet("{id:int}/basicsyslogs")]
-    [Authorize(Policy = BasicPermissionNames.BasicUserUpdate)]
-    public async Task<ApiResponse<BasicSyslogHistoryResult>> GetBasicSyslogs(int id)
-        => ApiResponse<BasicSyslogHistoryResult>.Ok(
-            await basicSyslogHistoryService.GetRecordHistoryAsync(nameof(BasicUser), id, nameof(BasicUserGroup)));
+    public async Task<ActionResult<ApiResponse<List<BasicGroupOption>>>> GetBasicGroupOptions()
+        => Ok(ApiResponse<List<BasicGroupOption>>.Success(await basicUsersService.GetBasicGroupOptionsAsync(User.GetBasicUserId())));
 
     [HttpPost]
     [Authorize(Policy = BasicPermissionNames.BasicUserCreate)]
     [BasicSyslogDescription("新增使用者")]
-    public async Task<ApiResponse<int>> Create(BasicUserCreateRequest request)
-        => ApiResponse<int>.Ok(await basicUsersService.CreateAsync(request, User.GetBasicUserId()), "新增成功");
+    public async Task<ActionResult<ApiResponse<int>>> Create(BasicUserCreateRequest request)
+        => Ok(ApiResponse<int>.Success(await basicUsersService.CreateAsync(request, User.GetBasicUserId()), "新增成功"));
 
     [HttpPut("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicUserUpdate)]
     [BasicSyslogDescription("編輯使用者")]
-    public async Task<ApiResponse> Update(int id, BasicUserUpdateRequest request)
+    public async Task<ActionResult<ApiResponse>> Update(int id, BasicUserUpdateRequest request)
     {
         await basicUsersService.UpdateAsync(id, request, User.GetBasicUserId());
-        return ApiResponse.Success("儲存成功");
+        return Ok(ApiResponse.Ok("儲存成功"));
     }
 
     [HttpDelete("{id:int}")]
     [Authorize(Policy = BasicPermissionNames.BasicUserDelete)]
     [BasicSyslogDescription("刪除使用者")]
-    public async Task<ApiResponse> Delete(int id)
+    public async Task<ActionResult<ApiResponse>> Delete(int id)
     {
         await basicUsersService.DeleteAsync(id, User.GetBasicUserId());
-        return ApiResponse.Success("刪除成功");
+        return Ok(ApiResponse.Ok("刪除成功"));
     }
+
+    /// <summary>單筆資料的異動歷程（可編輯者才能檢視）</summary>
+    [HttpGet("{id:int}/basicsyslogs")]
+    [Authorize(Policy = BasicPermissionNames.BasicUserUpdate)]
+    public async Task<ActionResult<ApiResponse<BasicSyslogHistoryResult>>> GetBasicSyslogs(int id)
+        => Ok(ApiResponse<BasicSyslogHistoryResult>.Success(
+            await basicSyslogHistoryService.GetRecordHistoryAsync(nameof(BasicUser), id, nameof(BasicUserGroup))));
 }

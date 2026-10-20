@@ -4,33 +4,29 @@ obj/
 *.user
 .vs/
 
-# 發佈輸出（publish.ps1 產生）
-publish/
-
-# 每次發佈產生的 SBOM（保留於發佈機，資料夾名稱含發佈時間與 commit）
-sbom/
-
-# 後端 wwwroot（由 publish.ps1 從前端 dist 複製）
-backend/wwwroot/
-
-# 郵件 Pickup 目錄（Smtp:Enabled = false 時產生，內含重設連結）
-backend/MailPickup/
-backend/Logs/
-
-# 記錄檔
-logs/
-*.log
-
 # 前端
 node_modules/
 dist/
 .env.local
 .env.*.local
 
+# 發佈產物（由 publish.ps1 產生）
+publish/
+backend/wwwroot/
+sbom/
+
+# 執行時產生（Log 可能含個資或內部資訊）
+backend/Logs/
+backend/MailPickup/
+logs/
+*.log
+
+# 系統檔
+.DS_Store
+Thumbs.db
+
 # 編輯器
 .vscode/*
 !.vscode/extensions.json
 .idea/
 *.swp
-.DS_Store
-Thumbs.db

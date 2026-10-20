@@ -1,19 +1,14 @@
 namespace backend.DTOs.BasicSyslogs;
 
-/// <summary>
-/// 異動歷程中的欄位值
-/// </summary>
+/// <summary>欄位異動（只列出有變更的欄位；新增、刪除列出全部欄位）</summary>
 public class BasicSyslogHistoryField
 {
-    /// <summary>欄位名稱</summary>
     public string Name { get; set; } = string.Empty;
 
-    /// <summary>欄位描述（MS_Description）</summary>
-    public string Description { get; set; } = string.Empty;
+    /// <summary>欄位描述（無描述時同 Name）</summary>
+    public string Label { get; set; } = string.Empty;
 
-    /// <summary>異動前的值（新增時為 null）</summary>
     public string? Before { get; set; }
 
-    /// <summary>異動後的值（刪除時為 null）</summary>
     public string? After { get; set; }
 }

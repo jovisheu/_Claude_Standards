@@ -60,6 +60,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 | 資料庫（第 5～8 項） | `DB_DefaultConnection.txt` 不存在、連線測試失敗、SQL Server 版本低於 2019（`ProductVersion` 主版本小於 15），或目標資料庫已存在且含資料表 |
 | 業務功能（第 23 項） | 有填，但無法判斷資料表欄位、型別或關聯 |
 | 部署（第 19、20 項） | `部署方式` 不是 IIS／Kestrel，或指定前後端分開部署卻未提供來源白名單 |
+| 版面（第 24 項） | `主色` 不是 6 碼 Hex，也無法對應第 24 項列出的中文色名；或 `Logo` 檔案不存在 |
 | 建立方式（第 25 項） | `使用範本` 不是留白、「是」或「否」；或使用範本但 `templates\project\` 不存在 |
 | 建置與驗證 | `dotnet build`、`npm run build` 或 Migration 失敗，自行修正 2 次仍失敗；發佈腳本執行失敗（不修改腳本繞過） |
 | 破壞性動作 | 任何會覆蓋、刪除既有檔案或資料庫的步驟 |
@@ -94,9 +95,9 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 11. 登入錯誤鎖定 — 預設：15 分鐘內錯 5 次，鎖定 15 分鐘
 12. 密碼歷程／期限 — 預設：前 3 次不得重複、180 天須變更
 13. JWT 有效時間 — 預設：60 分鐘
-14. 重設密碼連結時效與申請頻率 — 預設：30 分鐘；同帳號 5 分鐘內限申請 1 次
+14. 重設密碼連結時效與申請頻率 — 預設：10 分鐘；同帳號 5 分鐘內限申請 1 次
 15. 登入速率限制 — 預設：每 IP 每分鐘 10 次
-16. 登入是否使用驗證碼 — 預設：是（後端產生的圖形驗證碼，5 碼）
+16. 登入與忘記密碼是否使用驗證碼 — 預設：是（後端以 SkiaSharp 產生的圖形驗證碼，5 碼；兩者共用 `Security:Login:CaptchaEnabled`）
 
 系統錯誤紀錄與系統異動歷程的保留天數固定寫入 `BasicExceptionlog:RetentionDays = 30`、`BasicSyslog:RetentionDays = 30`，不列入詢問項目。
 
@@ -113,6 +114,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 22. 第一版基本功能 — 預設：登入／登出、忘記密碼、逾期變更密碼、使用者管理、群組與權限管理
 23. 其他業務功能：功能名稱與主要欄位（依規範產生 Controller／Service／DTO／Model 與前端功能資料夾）— 預設：`Project_Info.txt` 的 `業務功能`，留白為無
 24. 版面需求 — 側邊選單 + 頂列的後台版面（使用範本時沿用範本版面）；主色、Logo 取自 `Project_Info.txt` 的 `主色`、`Logo`（Logo 填檔案路徑），留白時：使用範本沿用範本樣式（主色 `#1e6fd9`、側邊選單顯示系統名稱文字），不使用範本則自行採用預設樣式
+   - 主色須為 6 碼 Hex（如 `#16A34A`），作為色階的 `600`。填中文色名時採 Tailwind 同名色系的 `600`（紅 `red`、橙 `orange`、黃 `amber`、綠 `green`、青 `teal`、藍 `blue`、靛 `indigo`、紫 `violet`、粉 `pink`、灰 `slate`），並於「採用設定摘要」列出換算後的 Hex；無法對應的值為紅燈，詢問 Hex 色碼
 
 ### 八、建立方式
 25. 是否使用範本 — 預設：`Project_Info.txt` 的 `使用範本`，留白為「是」（複製 `templates\project\`，程式與 UI 和範本一致）；「否」時依 `no-template.md` 重新產生
@@ -133,7 +135,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 
    | 佔位符 | 值 | 所在檔案 |
    | --- | --- | --- |
-   | `__PROJECT_NAME__` | 第 1 項 | `backend/appsettings.json`、`backend/Program.cs`、`frontend/.env`、`CLAUDE.md` |
+   | `__PROJECT_NAME__` | 第 1 項 | `backend/appsettings.json`、`frontend/.env`、`CLAUDE.md` |
    | `__PROJECT_NAME_LOWER__` | 第 1 項轉小寫 | `frontend/package.json`、`frontend/package-lock.json`（兩處） |
    | `__PROJECT_PURPOSE__` | 第 2 項 | `CLAUDE.md` |
    | `__BACKEND_PORT__` | 5100～5999 中未被其他專案使用的埠號 | `backend/Properties/launchSettings.json`、`frontend/vite.config.ts`、`CLAUDE.md` |
@@ -143,9 +145,9 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
    | `__SMTP_ENABLED__`、`__SMTP_HOST__`、`__SMTP_PORT__`、`__SMTP_USE_SSL__`、`__SMTP_SENDER_NAME__`、`__SMTP_SENDER_EMAIL__`、`__SMTP_USERNAME__` | 第 17 項（`SendMail_Info.txt` 不存在時 `Enabled` 為 `false`、其餘留空字串、Port `587`、UseSsl `true`） | `backend/appsettings.json` |
    | `__SEED_YEAR__`、`__SEED_MONTH__`、`__SEED_DAY__` | 建立專案當日（數字，不補 0） | `backend/Data/SeedData.cs` |
    | `__SEED_DATE__` | 建立專案當日（`yyyy-MM-dd`） | `CLAUDE.md` |
-   | `__ADMIN_USERNAME__`、`__ADMIN_EMAIL__`、`__ADMIN_DISPLAY_NAME__` | 第 9 項管理員 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md` |
+   | `__ADMIN_USERNAME__`、`__ADMIN_EMAIL__`、`__ADMIN_DISPLAY_NAME__` | 第 9 項管理員 | `backend/Data/SeedData.cs`（帳號為常數，一處）、`CLAUDE.md` |
    | `__ADMIN_PASSWORD_HASH__` | keygen 輸出的 `AdminPasswordHash` | `backend/Data/SeedData.cs` |
-   | `__GUEST_USERNAME__`、`__GUEST_EMAIL__`、`__GUEST_DISPLAY_NAME__` | 第 9 項一般使用者 | `backend/Data/SeedData.cs`（帳號兩處）、`CLAUDE.md`（帳號兩處） |
+   | `__GUEST_USERNAME__`、`__GUEST_EMAIL__`、`__GUEST_DISPLAY_NAME__` | 第 9 項一般使用者 | `backend/Data/SeedData.cs`（帳號為常數，一處）、`CLAUDE.md`（帳號兩處） |
    | `__GUEST_PASSWORD_HASH__` | keygen 輸出的 `GuestPasswordHash` | `backend/Data/SeedData.cs` |
    | `__DB_SERVER__`、`__DB_NAME__`、`__DB_AUTH__` | 第 6、7 項（`__DB_AUTH__` 為「SQL 帳密驗證」或「Windows 整合驗證」） | `CLAUDE.md` |
    | `__DEPLOY_DESCRIPTION__` | 第 19 項：「IIS（需 IIS 10 以上與 ASP.NET Core Hosting Bundle）」或「Kestrel 獨立執行」 | `CLAUDE.md` |
@@ -158,8 +160,8 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
    - SMTP 密碼：`SendMail_Info.txt` 的 `Password`；檔案不存在時 `__ENC_SMTP_PASSWORD__` 換成空字串（為空時不解密）。
    - 明文不得寫入專案任何檔案或回報內容。
 5. **主色與 Logo**（第 24 項，留白則略過）：
-   - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺。
-   - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（`alt` 為系統名稱），保留系統名稱文字。
+   - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺；郵件範本 `backend/Template/ResetPassword.html` 按鈕的 `background` 一併換成主色。
+   - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（以 `import logoUrl from '@/assets/logo.<副檔名>'` 引用，`alt` 為系統名稱），保留系統名稱文字；`frontend/index.html` 加上 `<link rel="icon" href="/src/assets/logo.<副檔名>" />`。
 6. **業務功能**（第 23 項，留白則略過）：先讀 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\add-feature\SKILL.md`，依其第 1.1 節整理規格、第 2.1 節（後端）、第 2.2 節（前端）與第 2.4 節（文件）建立，比照範本的使用者管理（`BasicUsers`）。Migration 不另外新增，併入第 8 步的 `InitialCreate`；規格不明的紅燈已於第 2 節判斷，這裡不重複詢問。
 7. **安裝前端套件**：`npm ci --prefix <frontend 絕對路徑>`（依範本的 `package-lock.json` 安裝，不升級版本）。
    - **SBOM 工具版本**（CycloneDX，發佈腳本產生 SBOM 用）：建立時自動選用「發佈滿 14 天的最新穩定版」並鎖定於專案的 `dotnet-tools.json`，之後不自動切換（發佈腳本只提醒新版）。
@@ -174,10 +176,19 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 
 - 使用範本時：佔位符已全部替換（Grep `__[A-Z0-9_]+__` 為 0 筆）。
 - `dotnet build`、`npm run build` 皆須成功；第 8 項為是時執行 Migration。失敗時自行修正，2 次仍失敗為紅燈，停下回報錯誤並詢問。使用範本時，範本本身的問題（非佔位符或業務功能造成）修正後，於回報中提醒使用者同步更新範本。
-- 可啟動時實際啟動後端（背景執行），以 `curl -s http://localhost:<port>/...` 確認登入流程與回應標頭。**驗證只做不留下資料的請求**，建完的資料庫只含種子資料：
-  - 可測：回應標頭、`ApiResponse` 格式、JSON 格式錯誤與模型驗證、驗證碼錯誤（不計入錯誤次數）、401（無 Token、無效 Token）、`/api` 不存在路徑 404、錯誤 Content-Type 回 415 `ApiResponse`、連續送出驗證碼錯誤的登入直到 429、以命令列參數關閉驗證碼啟動（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`，`Program.cs` 須以 `WebApplication.CreateBuilder(args)` 讀取命令列設定）後用預設管理員登入，確認直接回傳 JWT 與 `expiresAt`（`requirePasswordChange` 為 `false`），並以該 Token 呼叫需登入的端點（如 `/api/auth/me`）；再以預設一般使用者登入，確認 `basicPermissionNames` 只有 `*.read`、檢視端點（如 `GET /api/basicusers`）回 200、寫入端點（如 `POST /api/basicusers` 送空物件）回 403（授權在模型驗證前攔截，不會寫入資料）。
-  - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `BasicLoginErrlog`）、新增／編輯／刪除資料、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
-  - 不以 `sqlcmd` 或其他方式異動資料庫資料；若不慎寫入，視為破壞性動作的紅燈，停下詢問。
+- 可啟動時實際啟動後端（背景執行）驗證。**驗證只做不留下資料的請求**，建完的資料庫只含種子資料。依序執行（腳本位於 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\scripts\`，用法見各腳本開頭）：
+  1. **筆數基準**（`sqlcmd` 可用時）：以唯讀查詢記錄每張資料表的筆數（如 `SELECT t.name, SUM(p.rows) FROM sys.tables t JOIN sys.partitions p ON p.object_id = t.object_id AND p.index_id IN (0, 1) GROUP BY t.name`）。
+  2. **基本檢查**（驗證碼依設定啟用）：`dotnet run --project <backend 絕對路徑>` 背景啟動，執行 `node <scripts>\project-smoke.js --base http://localhost:<port>`，檢查回應標頭、`ApiResponse` 格式、401（無 Token、無效 Token）、`/api` 不存在路徑 404、錯誤 Content-Type 回 415、JSON 格式錯誤、缺少 Body、模型驗證、驗證碼圖片與驗證碼錯誤（不計入錯誤次數），最後連續送出登入請求直到 429。429 一律最後測：速率限制的計數存在記憶體，同一個後端程序之後的登入會被擋。完成後停止後端。
+  3. **登入與功能檢查**：以命令列參數關閉驗證碼重新啟動（`dotnet run --project <backend 絕對路徑> -- --Security:Login:CaptchaEnabled=false`，`Program.cs` 須以 `WebApplication.CreateBuilder(args)` 讀取命令列設定；重新啟動也會重設速率限制計數），執行：
+     - `node <scripts>\project-smoke.js --base <網址> --admin <管理員帳號>:<密碼> --guest <一般使用者帳號>:<密碼> --skip-basic --skip-rate-limit`：管理員登入直接回傳 JWT 與 `expiresAt`（`requirePasswordChange` 為 `false`）、`/api/auth/me` 回 200；一般使用者的 `basicPermissionNames` 只有 `*.read`、`GET /api/basicusers` 回 200、`POST /api/basicusers` 送空物件回 403（授權在模型驗證前攔截，不會寫入資料）。
+     - 對 `basicusers`、`basicgroups` 與第 23 項的每個業務功能各執行 `node <scripts>\api-smoke.js --base <網址> --feature <功能> --admin ... --guest ...`（**不加 `--write`**）：分頁格式、404、**異動歷程端點 `GET /api/<功能>/{id}/basicsyslogs` 回 200**、模型驗證、訪客 403。
+     - 腳本任一項失敗即依失敗訊息修正後重新執行；完成後停止後端。
+  4. **筆數比對**：再以唯讀查詢讀取每張資料表的筆數，與第 1 步比對：
+     - `BasicExceptionlog` 增加：代表驗證過程發生未處理例外（500）。依 Log 找出原因修正、重新執行失敗的檢查；這些紀錄是系統自動寫入的錯誤紀錄，**保留且不視為紅燈、不停下詢問**，於完成回報列出 Id、MethodName 與修正內容（超過保留天數後自動轉存）。
+     - 其他資料表筆數有變動（含 `BasicSyslog`、`BasicLoginErrlog`、`BasicPwdlog` 與業務資料表）：視為破壞性動作的紅燈，停下詢問。
+     - `sqlcmd` 無法使用時略過第 1、4 步，於完成回報註明「未比對資料筆數」。
+  - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `BasicLoginErrlog`）、新增／編輯／刪除資料（`api-smoke.js --write`）、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
+  - 不以 `sqlcmd` 或其他方式異動資料庫資料。
 - 執行 `owasp-check` skill 檢查整個專案，將結果附在完成回報中（發現問題直接修正，不另外詢問；涉及第 2 節紅燈條件時才詢問）。修正後重新 `dotnet build` 確認成功。
 
 ## 5. 發佈（第 21 項為是時）
@@ -198,4 +209,4 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 
 ## 6. 完成回報
 
-明確列出：已完成項目、未執行的步驟與原因、預設管理員與一般使用者帳號（提醒一般使用者正式上線前停用或變更密碼）、產生加密值的指令、`owasp-check` 結果、發佈結果與部署提醒，以及「尚未 commit，請確認後自行 commit；正式部署前 commit 後重新發佈」。
+明確列出：已完成項目、未執行的步驟與原因、驗證腳本結果與資料筆數比對（驗證期間新增的 `BasicExceptionlog` 列出 Id、MethodName 與修正內容）、預設管理員與一般使用者帳號（提醒一般使用者正式上線前停用或變更密碼）、產生加密值的指令、`owasp-check` 結果、發佈結果與部署提醒，以及「尚未 commit，請確認後自行 commit；正式部署前 commit 後重新發佈」。

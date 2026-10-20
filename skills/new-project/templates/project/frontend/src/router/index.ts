@@ -1,75 +1,58 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 import AdminLayout from '@/layouts/AdminLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
-import { getCurrentBasicUser } from '@/views/Login/api'
-import basicGroupsRoutes from '@/views/BasicGroups/routes'
-import basicUsersRoutes from '@/views/BasicUsers/routes'
-import changePasswordRoutes from '@/views/ChangePassword/routes'
-import forgotPasswordRoutes from '@/views/ForgotPassword/routes'
-import homeRoutes from '@/views/Home/routes'
-import loginRoutes from '@/views/Login/routes'
-import notFoundRoutes from '@/views/NotFound/routes'
-import resetPasswordRoutes from '@/views/ResetPassword/routes'
+import { adminRoutes, catchAllRoutes, publicRoutes } from './featureRoutes'
 
-declare module 'vue-router' {
-  interface RouteMeta {
-    /** 不需登入即可瀏覽 */
-    public?: boolean
-    /** 頁面標題 */
-    title?: string
-    /** 瀏覽所需權限 */
-    basicPermission?: string
-  }
-}
+const routes: RouteRecordRaw[] = [
+  ...publicRoutes,
+  { path: '/', component: AdminLayout, children: adminRoutes },
+  ...catchAllRoutes,
+]
 
 const router = createRouter({
+  // 部署子路徑取自 BASE_URL
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [
-    ...loginRoutes,
-    ...forgotPasswordRoutes,
-    ...resetPasswordRoutes,
-    ...changePasswordRoutes,
-    {
-      path: '/',
-      component: AdminLayout,
-      children: [...homeRoutes, ...basicUsersRoutes, ...basicGroupsRoutes],
-    },
-    ...notFoundRoutes,
-  ],
+  routes,
 })
+
+/** 只接受站內路徑，避免開放式重新導向 */
+export function safeRedirect(value: unknown): string {
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.startsWith('/\\') ? value : '/'
+}
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  const message = useMessageStore()
+  const loggedIn = auth.checkLoggedIn()
 
   if (to.meta.public) {
-    // 已登入時不需再進入登入頁
-    if (to.name === 'login' && auth.isLoggedIn) return { name: 'home' }
+    if (to.name === 'login' && loggedIn) {
+      return { path: safeRedirect(to.query.redirect) }
+    }
     return true
   }
 
-  if (!auth.isLoggedIn) {
-    // 曾登入但已超過 expiresAt：清除登入狀態並提示
-    if (auth.isExpired) {
+  if (!loggedIn) {
+    // 有 token 但已過期：清除登入狀態並提示
+    if (auth.token) {
       auth.clear()
-      await message.error('登入已逾時，請重新登入')
+      useMessageStore().info('登入已逾時，請重新登入')
     }
-    return { name: 'login', query: to.fullPath === '/' ? undefined : { redirect: to.fullPath } }
+    return { name: 'login', query: to.fullPath === '/' ? {} : { redirect: to.fullPath } }
   }
 
-  // 每次開啟頁面後向後端取得一次最新權限
+  // 權限以後端資料庫為準：本次開啟頁面後第一次導覽前先取得最新權限，避免以快取的舊權限判斷
   if (!auth.basicUserRefreshed) {
     try {
-      auth.setBasicUser(await getCurrentBasicUser())
+      await auth.refresh()
     } catch {
-      // 401 已由 interceptor 處理並導向登入頁
-      return auth.isLoggedIn ? false : { name: 'login' }
+      // 錯誤已由 interceptor 處理（401 時已導向登入頁）
+      return false
     }
   }
 
   if (to.meta.basicPermission && !auth.hasBasicPermission(to.meta.basicPermission)) {
-    await message.error('權限不足，無法瀏覽此頁面')
+    useMessageStore().error('您沒有使用此功能的權限')
     return { name: 'home' }
   }
 
@@ -77,8 +60,8 @@ router.beforeEach(async (to) => {
 })
 
 router.afterEach((to) => {
-  const appTitle = import.meta.env.VITE_APP_TITLE
-  document.title = to.meta.title ? `${to.meta.title} - ${appTitle}` : appTitle
+  const systemName = import.meta.env.VITE_APP_TITLE
+  document.title = to.meta.title ? `${to.meta.title} - ${systemName}` : systemName
 })
 
 export default router

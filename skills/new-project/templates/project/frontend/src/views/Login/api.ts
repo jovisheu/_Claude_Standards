@@ -1,23 +1,10 @@
-import http from '@/api/http'
-import type { ApiResponse } from '@/types/api'
-import type { AuthOptions, Captcha, CurrentBasicUser, LoginRequest, LoginResult } from './types'
+import { get, post } from '@/api/http'
+import type { CaptchaResult, LoginFormData, LoginResult } from './types'
 
-export async function getAuthOptions() {
-  const { data } = await http.get<ApiResponse<AuthOptions>>('/auth/options')
-  return data.datas!
+export function getCaptcha() {
+  return get<CaptchaResult>('/auth/captcha')
 }
 
-export async function getCaptcha() {
-  const { data } = await http.get<ApiResponse<Captcha>>('/auth/captcha')
-  return data.datas!
-}
-
-export async function login(request: LoginRequest) {
-  const { data } = await http.post<ApiResponse<LoginResult>>('/auth/login', request)
-  return data.datas!
-}
-
-export async function getCurrentBasicUser() {
-  const { data } = await http.get<ApiResponse<CurrentBasicUser>>('/auth/me')
-  return data.datas!
+export function login(data: LoginFormData) {
+  return post<LoginResult>('/auth/login', data)
 }

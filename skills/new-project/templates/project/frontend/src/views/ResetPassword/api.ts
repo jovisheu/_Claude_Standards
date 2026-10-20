@@ -1,8 +1,6 @@
-import http from '@/api/http'
-import type { ApiResponse } from '@/types/api'
-import type { ResetPasswordRequest } from './types'
+import { post } from '@/api/http'
+import type { ResetPasswordFormData } from './types'
 
-export async function resetPassword(request: ResetPasswordRequest) {
-  const { data } = await http.post<ApiResponse>('/auth/reset-password', request)
-  return data
+export function resetPassword(data: ResetPasswordFormData) {
+  return post<null>('/auth/reset-password', data)
 }

@@ -1,8 +1,10 @@
-import http from '@/api/http'
-import type { ApiResponse } from '@/types/api'
-import type { ForgotPasswordRequest } from './types'
+import { get, post } from '@/api/http'
+import type { CaptchaResult, ForgotPasswordFormData } from './types'
 
-export async function forgotPassword(request: ForgotPasswordRequest) {
-  const { data } = await http.post<ApiResponse>('/auth/forgot-password', request)
-  return data
+export function getCaptcha() {
+  return get<CaptchaResult>('/auth/captcha')
+}
+
+export function forgotPassword(data: ForgotPasswordFormData) {
+  return post<null>('/auth/forgot-password', data)
 }

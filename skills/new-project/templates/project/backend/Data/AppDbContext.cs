@@ -5,7 +5,8 @@ namespace backend.Data;
 
 /// <summary>
 /// 資料表與欄位一律以 HasComment 加上繁體中文描述（寫入 SQL Server 的 MS_Description）；
-/// 描述只說明欄位本身的意義，不寫特定資料的值或程式約定
+/// 描述只說明欄位本身的意義，不寫特定資料的值或程式約定。
+/// 一律由 DI 取得（掛有異動歷程攔截器），不可自行 new。
 /// </summary>
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {

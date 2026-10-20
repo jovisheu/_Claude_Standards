@@ -5,6 +5,9 @@
 ## 專案技術棧 (Tech Stack)
 
 * **Backend**: .NET 10 Web API, Entity Framework Core 10, JWT, MSSQL
+  * 郵件一律使用 **MailKit**（支援 465 隱含 TLS 與 587 STARTTLS），不使用已不建議用於新開發的 `System.Net.Mail.SmtpClient`。
+  * 圖形驗證碼一律以 **SkiaSharp** 繪製（字型、隨機旋轉、干擾線與雜點），不自行實作點陣字或影像編碼。
+  * 兩者版本以新專案範本的 `backend.csproj` 為準（經 `upgrade-packages` 維護）。
 * **資料庫版本**: 開發與正式環境以 **Microsoft SQL Server 2019**（資料庫相容性層級 150）為基準，程式只能使用 SQL Server 2019 支援的語法：
   * EF Core 一律 `UseSqlServer(連線字串, o => o.UseCompatibilityLevel(150))`，避免 EF Core 依較新版本產生 2019 不支援的 SQL；開發機為較新版本時同樣以 150 為準。
   * 原生 SQL（`FromSql`、SSMS、部署腳本）不得使用 SQL Server 2022 以後才有的語法，如 `GREATEST`／`LEAST`、`DATETRUNC`、`DATE_BUCKET`、`GENERATE_SERIES`、`JSON_OBJECT`／`JSON_ARRAY`、`IS [NOT] DISTINCT FROM`、`STRING_SPLIT` 的第三個參數、`LTRIM`／`RTRIM` 指定字元、`WINDOW` 子句、`json` 資料型別。
@@ -100,7 +103,7 @@
 | `Models/[Entity]/[Entity].cs` | 資料表實體，只描述欄位；namespace 一律維持 `backend.Models`（避免與類別同名，並保持 Migration 快照型別名稱不變） |
 | `Data/` | `AppDbContext`（關聯、唯一索引、靜態種子）、動態種子 |
 | `Exceptions/BusinessException.cs` | 可顯示給使用者的業務錯誤 |
-| `Extensions/` | 擴充方法（如 `User.GetBasicUserId()`） |
+| `Extensions/` | 擴充方法（如 `User.GetBasicUserId()`）；Middleware、授權處理器、驗證屬性等橫切元件也放這裡，不另建 `Middleware/` 等資料夾 |
 
 **基本資料表（驗證、權限與系統紀錄）：** 各專案共用 `BasicUser`、`BasicGroup`、`BasicPermission`、`BasicUserGroup`、`BasicGroupPermission`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicExceptionlog`、`BasicSyslog`，名稱與欄位維持一致；欄位與種子定義見 `references/basic-tables.md`，既有專案以專案內的 `Models/` 為準。系統資料表以 `Basic` 前置，業務資料表不可用 `Basic` 開頭。
 

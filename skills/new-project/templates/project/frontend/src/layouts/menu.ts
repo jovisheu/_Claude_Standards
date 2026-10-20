@@ -1,13 +1,23 @@
-/** 側邊選單項目（basicPermission 為空表示登入即可瀏覽） */
+import type { RouteRecordRaw } from 'vue-router'
+
 export interface MenuItem {
-  name: string
   title: string
   description: string
+  routeName: string
   basicPermission?: string
+  order: number
 }
 
-export const menuItems: MenuItem[] = [
-  { name: 'home', title: '首頁', description: '系統首頁' },
-  { name: 'basicusers', title: '使用者管理', description: '管理使用者帳號、狀態與所屬群組', basicPermission: 'basicuser.read' },
-  { name: 'basicgroups', title: '群組管理', description: '管理群組與群組權限', basicPermission: 'basicgroup.read' },
-]
+/** 由各功能 routes.ts 的 meta.menu 產生側邊選單與首頁卡片；權限過濾由使用端依登入者權限處理 */
+export function buildMenu(routes: RouteRecordRaw[]): MenuItem[] {
+  return routes
+    .filter((r) => r.meta?.menu && typeof r.name === 'string')
+    .map((r) => ({
+      title: r.meta!.menu!.title,
+      description: r.meta!.menu!.description,
+      routeName: r.name as string,
+      basicPermission: r.meta!.basicPermission,
+      order: r.meta!.menu!.order,
+    }))
+    .sort((a, b) => a.order - b.order)
+}
