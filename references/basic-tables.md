@@ -16,6 +16,7 @@
 | `BasicGroupPermission` | BasicGroupId + BasicPermissionId（複合主鍵） | 群組與權限多對多 |
 | `BasicLoginErrlog` | Id、Username、CreatedAt；索引 (Username, CreatedAt) | 登入失敗紀錄（鎖定判斷） |
 | `BasicPwdlog` | Id、Username、PasswordHash、CreatedAt；索引 (Username, CreatedAt) | 密碼歷程（重複與到期判斷） |
+| `BasicChecklogintimeSendMailLog` | Id、Username、Email（寄送時的地址）、CreatedAt（寄送時間）；索引 (Username, CreatedAt) | 密碼即將到期通知寄送紀錄（判斷當日是否已寄送，規則見 `auth-baseline.md`） |
 | `BasicExceptionlog` | Id、ExceptionType、MethodName、Message、StackTrace、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統錯誤紀錄（超過保留天數轉存 txt 後刪除） |
 | `BasicSyslog` | Id、Action（C／U／D）、MethodName、Description（業務說明，可為 null）、BeforeData（JSON 陣列）、AfterData（JSON 陣列）、Username（可為 null）、CreatedAt；索引 (CreatedAt) | 系統異動歷程（寫入前將超過保留天數的紀錄轉存 txt 後刪除） |
 

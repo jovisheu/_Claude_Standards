@@ -93,7 +93,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 
 ### 四、安全參數（寫入 `appsettings.json`）
 11. 登入錯誤鎖定 — 預設：15 分鐘內錯 5 次，鎖定 15 分鐘
-12. 密碼歷程／期限 — 預設：前 3 次不得重複、180 天須變更
+12. 密碼歷程／期限／到期提醒 — 預設：前 3 次不得重複、180 天須變更、到期前 10 天起每日寄送即將到期通知（`Security:Password:ChecklogintimeSendMailDay`，0 為不寄送）
 13. JWT 有效時間 — 預設：60 分鐘
 14. 重設密碼連結時效與申請頻率 — 預設：10 分鐘；同帳號 5 分鐘內限申請 1 次
 15. 登入速率限制 — 預設：每 IP 每分鐘 10 次
@@ -125,7 +125,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
 
 燈號判斷完成（全部綠燈，或紅燈已取得回覆）後依序建立，每完成一個階段簡短回報，不中途詢問。以下 `<範本>` 指 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\new-project\templates`。
 
-範本已包含規範要求的所有基本功能與資安設定（JWT 驗證、預設 `[Authorize]`、權限查資料庫、全域例外處理與系統錯誤紀錄（`BasicExceptionlog` 寫入與每日轉存）、系統異動歷程（`BasicSyslog` 自動寫入與轉存）、各狀態碼的 `ApiResponse`、安全標頭、速率限制、驗證碼、AES 加密設定與 `encrypt` 工具模式、單一密碼設定方法、郵件範本、前端 interceptor 與登入狀態、部署子路徑、`web.config`），不需另外撰寫。
+範本已包含規範要求的所有基本功能與資安設定（JWT 驗證、預設 `[Authorize]`、權限查資料庫、全域例外處理與系統錯誤紀錄（`BasicExceptionlog` 寫入與每日轉存）、系統異動歷程（`BasicSyslog` 自動寫入與轉存）、各狀態碼的 `ApiResponse`、安全標頭、速率限制、驗證碼、AES 加密設定與 `encrypt` 工具模式、單一密碼設定方法、密碼即將到期通知（背景服務與 `BasicChecklogintimeSendMailLog`）、郵件範本、前端 interceptor 與登入狀態、部署子路徑、`web.config`），不需另外撰寫。
 
 1. **複製範本**：
    - `Copy-Item -LiteralPath "<範本>\project" -Destination "<專案目錄>" -Recurse`（目標目錄不存在時會一併建立；上層資料夾不存在時先以 `New-Item -ItemType Directory` 建立）。
@@ -160,7 +160,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
    - SMTP 密碼：`SendMail_Info.txt` 的 `Password`；檔案不存在時 `__ENC_SMTP_PASSWORD__` 換成空字串（為空時不解密）。
    - 明文不得寫入專案任何檔案或回報內容。
 5. **主色與 Logo**（第 24 項，留白則略過）：
-   - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺；郵件範本 `backend/Template/ResetPassword.html` 按鈕的 `background` 一併換成主色。
+   - 主色：將 `frontend/src/style.css` 的 `@theme` 中 `--color-primary-50`～`--color-primary-900` 換成以主色為 `600` 的同色系深淺；郵件範本 `backend/Template/ResetPassword.html`、`backend/Template/PasswordExpireNotice.html` 按鈕的 `background` 一併換成主色。
    - Logo：複製圖檔至 `frontend/src/assets/logo.<副檔名>`，在 `frontend/src/layouts/AdminLayout.vue` 側邊選單標題與 `frontend/src/views/Login/Index.vue` 標題前加上 `<img>`（以 `import logoUrl from '@/assets/logo.<副檔名>'` 引用，`alt` 為系統名稱），保留系統名稱文字；`frontend/index.html` 加上 `<link rel="icon" href="/src/assets/logo.<副檔名>" />`。
 6. **業務功能**（第 23 項，留白則略過）：先讀 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\skills\add-feature\SKILL.md`，依其第 1.1 節整理規格、第 2.1 節（後端）、第 2.2 節（前端）與第 2.4 節（文件）建立，比照範本的使用者管理（`BasicUsers`）。Migration 不另外新增，併入第 8 步的 `InitialCreate`；規格不明的紅燈已於第 2 節判斷，這裡不重複詢問。
 7. **安裝前端套件**：`npm ci --prefix <frontend 絕對路徑>`（依範本的 `package-lock.json` 安裝，不升級版本）。
@@ -185,7 +185,7 @@ sqlcmd -?            # 選用，用於確認資料庫連線與版本（SELECT SE
      - 腳本任一項失敗即依失敗訊息修正後重新執行；完成後停止後端。
   4. **筆數比對**：再以唯讀查詢讀取每張資料表的筆數，與第 1 步比對：
      - `BasicExceptionlog` 增加：代表驗證過程發生未處理例外（500）。依 Log 找出原因修正、重新執行失敗的檢查；這些紀錄是系統自動寫入的錯誤紀錄，**保留且不視為紅燈、不停下詢問**，於完成回報列出 Id、MethodName 與修正內容（超過保留天數後自動轉存）。
-     - 其他資料表筆數有變動（含 `BasicSyslog`、`BasicLoginErrlog`、`BasicPwdlog` 與業務資料表）：視為破壞性動作的紅燈，停下詢問。
+     - 其他資料表筆數有變動（含 `BasicSyslog`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicChecklogintimeSendMailLog` 與業務資料表；新專案的密碼歷程為建立當日，不在通知區間，不會寄送到期通知）：視為破壞性動作的紅燈，停下詢問。
      - `sqlcmd` 無法使用時略過第 1、4 步，於完成回報註明「未比對資料筆數」。
   - 不測：完成逾期變更或重設密碼、帳密錯誤登入（會寫入 `BasicLoginErrlog`）、新增／編輯／刪除資料（`api-smoke.js --write`）、寄送郵件。這些流程只做程式檢視，於回報中列為「未實測」。
   - 不以 `sqlcmd` 或其他方式異動資料庫資料。

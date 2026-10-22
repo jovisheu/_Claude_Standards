@@ -40,7 +40,7 @@
    * 須加上安全標頭（`X-Content-Type-Options`、`X-Frame-Options`、CSP 等），且不回傳 `Server` 等揭露伺服器資訊的標頭。
    * API 回應含個資或 Token 時須加 `Cache-Control: no-store`，不可被瀏覽器或代理伺服器快取。
    * 不得保留範例金鑰。
-   * 安全相關參數（錯誤次數、鎖定時間、密碼歷程次數、密碼有效天數、連結時效等）一律放在 `appsettings.json`，不寫死在程式中；前端提示的數值須由後端提供，不在前端寫死。
+   * 安全相關參數（錯誤次數、鎖定時間、密碼歷程次數、密碼有效天數、到期提醒天數、連結時效等）一律放在 `appsettings.json`，不寫死在程式中；前端提示的數值須由後端提供，不在前端寫死。
 3. **軟體供應鏈失效 (Software Supply Chain Failures)**:
 
    * 套件僅從官方 NuGet / npm 取得並鎖定版本：後端 `.csproj` 寫明確版本號，不用 `10.*` 等浮動版本；前端以 `package-lock.json` + `npm ci` 鎖定；不得使用有已知弱點的版本。
@@ -70,7 +70,8 @@
    * 驗證碼須由後端產生與比對，限時且一次性使用，嚴禁僅於前端檢查；預設 5 碼（字元數放設定檔）。
    * 登入端點須有速率限制與錯誤次數鎖定；帳號或密碼錯誤時統一回應「帳號或密碼錯誤」，不得透露帳號是否存在。
    * 設定密碼一律呼叫同一個方法，不得各自實作；嚴禁以 Email 寄送密碼。
-   * 錯誤次數鎖定、密碼規則、逾期變更、忘記密碼、前端登入狀態的實作細節見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`；**建立或修改這些功能前須先讀該檔**。
+   * 密碼到期前 `Security:Password:ChecklogintimeSendMailDay` 天起每日寄送即將到期通知，當日已寄送即不再寄送（紀錄於 `BasicChecklogintimeSendMailLog`）。
+   * 錯誤次數鎖定、密碼規則、逾期變更、到期通知、忘記密碼、前端登入狀態的實作細節見 `D:\Jovi\Localhost\_ClaudeCode\_Claude_Standards\references\auth-baseline.md`；**建立或修改這些功能前須先讀該檔**。
 8. **軟體或資料完整性失效 (Software or Data Integrity Failures)**:
 
    * JWT 須驗證簽章、Issuer、Audience 與有效期限。
@@ -105,7 +106,7 @@
 | `Exceptions/BusinessException.cs` | 可顯示給使用者的業務錯誤 |
 | `Extensions/` | 擴充方法（如 `User.GetBasicUserId()`）；Middleware、授權處理器、驗證屬性等橫切元件也放這裡，不另建 `Middleware/` 等資料夾 |
 
-**基本資料表（驗證、權限與系統紀錄）：** 各專案共用 `BasicUser`、`BasicGroup`、`BasicPermission`、`BasicUserGroup`、`BasicGroupPermission`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicExceptionlog`、`BasicSyslog`，名稱與欄位維持一致；欄位與種子定義見 `references/basic-tables.md`，既有專案以專案內的 `Models/` 為準。系統資料表以 `Basic` 前置，業務資料表不可用 `Basic` 開頭。
+**基本資料表（驗證、權限與系統紀錄）：** 各專案共用 `BasicUser`、`BasicGroup`、`BasicPermission`、`BasicUserGroup`、`BasicGroupPermission`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicChecklogintimeSendMailLog`、`BasicExceptionlog`、`BasicSyslog`，名稱與欄位維持一致；欄位與種子定義見 `references/basic-tables.md`，既有專案以專案內的 `Models/` 為準。系統資料表以 `Basic` 前置，業務資料表不可用 `Basic` 開頭。
 
 **命名：一律以資料表名稱（單數 PascalCase）為基準**，以 `BasicUser` 為例：
 

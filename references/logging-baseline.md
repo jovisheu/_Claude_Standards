@@ -26,7 +26,7 @@
   * 例外二：`EF.IsDesignTime`（`dotnet ef` 執行 Migration）時不檢查。
   * 三個類別皆以 Scoped 註冊，與 AppDbContext 同一範圍（`AddDbContext((sp, options) => ...AddInterceptors(...))`）。
 * 一次存檔一筆歷程：全部為新增記 `C`、全部為刪除記 `D`，其餘記 `U`；異動前後資料格式為 `[{ "Table": 資料表, "Data": { 欄位: 值 } }]`，含關聯表的異動，時間格式 `yyyy-MM-dd HH:mm:ss.fff`（回傳前端時去除毫秒）。
-* 不記錄系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`，清單在 `BasicSyslogSaveTracker.LogTables`）；其餘資料表的新增、刪除與任何欄位的修改皆記錄，含只異動機密欄位（如申請忘記密碼）。
+* 不記錄系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicChecklogintimeSendMailLog`，清單在 `BasicSyslogSaveTracker.LogTables`）；其餘資料表的新增、刪除與任何欄位的修改皆記錄，含只異動機密欄位（如申請忘記密碼）。
 * 機密欄位列於攔截器的 `MaskedProperties`，值以 `***` 遮蔽：null 仍記為 null（可看出設定或清除）；異動後的值有變更時記為 `***（已變更）`，歷程查詢才會列出該欄位。
 * 保留天數為 `appsettings.json` 的 `BasicSyslog:RetentionDays`（預設 30）。寫入歷程前先檢查是否有 `CreatedAt` 早於「今天 - 保留天數」的紀錄，有則轉存為 `網站目錄\Logs\Syslog\YYYY\MM\DD\{MethodName}.txt`（日期為異動發生日，同檔附加），寫檔成功才刪除資料庫紀錄；同一天確認過即以記憶體標記略過，同一時間只允許一個轉存。轉存失敗寫入 `BasicExceptionlog`、10 分鐘後再試，不影響使用者的異動。
 

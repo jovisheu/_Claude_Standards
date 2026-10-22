@@ -51,6 +51,9 @@ public class PasswordSettings
     /// <summary>密碼有效天數</summary>
     public int ExpireDays { get; set; } = 180;
 
+    /// <summary>到期前幾天起每日寄送即將到期通知（0 為不寄送）</summary>
+    public int ChecklogintimeSendMailDay { get; set; } = 10;
+
     /// <summary>逾期變更密碼憑證的有效分鐘數</summary>
     public int ChangeTokenExpireMinutes { get; set; } = 10;
 }

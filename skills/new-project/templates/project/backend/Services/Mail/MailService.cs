@@ -19,6 +19,7 @@ public class MailService(
     ILogger<MailService> logger) : IMailService
 {
     private const string ResetPasswordCategory = "重設密碼";
+    private const string PasswordExpireNoticeCategory = "密碼即將到期通知";
 
     public void QueueResetPasswordMail(string email, string displayName, string resetUrl, int expireMinutes)
     {
@@ -35,6 +36,22 @@ public class MailService(
         {
             logger.LogWarning("郵件佇列已滿，捨棄一封郵件：{Category}", ResetPasswordCategory);
         }
+    }
+
+    public MailMessageItem CreatePasswordExpireNoticeMail(string email, string displayName, string username, DateTime expireAt, int remainingDays)
+    {
+        var systemName = appSettings.Value.SystemName;
+        var body = templateStore.Render(MailTemplateStore.PasswordExpireNotice, new Dictionary<string, string>
+        {
+            ["SystemName"] = systemName,
+            ["DisplayName"] = displayName,
+            ["Username"] = username,
+            ["ExpireAt"] = expireAt.ToString("yyyy-MM-dd HH:mm"),
+            ["RemainingDays"] = remainingDays.ToString(),
+            ["LoginUrl"] = $"{appSettings.Value.FrontendUrl.TrimEnd('/')}/login",
+        });
+
+        return new MailMessageItem(email, displayName, $"【{systemName}】密碼即將到期通知", body, PasswordExpireNoticeCategory);
     }
 
     public async Task SendAsync(MailMessageItem item, CancellationToken cancellationToken)

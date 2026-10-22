@@ -26,6 +26,7 @@
      - 前端 Axios 於錯誤分支讀取 `message`，401 視為登入逾時。
    - 安全設定：JWT 驗證（簽章、Issuer、Audience、期限；`OnTokenValidated` 確認使用者仍啟用且安全戳記相符，見 `references\auth-baseline.md`）、預設 `[Authorize]`、安全標頭、移除 `Server` 標頭、`Cache-Control: no-store`、Swagger 僅限 Development（非 Development 時 `/swagger` 明確回 404，不落入 SPA fallback）、速率限制。
    - 密碼設定統一由單一方法處理；郵件範本放 `Template/` 並於啟動時載入。
+   - 密碼即將到期通知：依 `references\auth-baseline.md`「密碼即將到期通知」實作背景服務（`Services/BasicChecklogintimeSendMails/`，以 `IServiceScopeFactory` 取得 DbContext，直接呼叫 `IMailService.SendAsync`，寄送成功才寫入 `BasicChecklogintimeSendMailLog`）與郵件範本 `Template/PasswordExpireNotice.html`；`BasicChecklogintimeSendMailLog` 加入 `BasicSyslogSaveTracker.LogTables`。
    - 連線字串、JWT 金鑰、SMTP 密碼：以 AES-256 加密後寫入 `appsettings.json`（SMTP 密碼為空時不解密）。
      - `AES256Key`（32 字元）、`AES256IV`（16 字元）以 `RandomNumberGenerator` 從英數字隨機產生，每個專案各自一組，寫在 `appsettings.json` 頂層。
      - `Extensions/ConfigEncryption.cs`：使用 .NET 內建 `Aes`（CBC、PKCS7），加密值以 Base64 儲存；解密失敗或長度不符時拒絕啟動，錯誤訊息不含原始值。
@@ -50,6 +51,6 @@
    - 後端 `.csproj` 排除 `publish/**`（避免下次發佈時被當成內容檔再複製一層），並於發佈時排除套件附帶的 `.pdb`（如 `libSkiaSharp.pdb` 約 90 MB）。
    - 部署子路徑（第 19 項）：前端 `.env` 設定 `VITE_APP_BASE`（以 `/` 開頭與結尾，納入版控）；`vite.config.ts` 只在建置時套用為 `base`（開發固定 `/`）；router `createWebHistory(import.meta.env.BASE_URL)`、Axios ``baseURL: `${import.meta.env.BASE_URL}api` ``；後端由 IIS 自動設定 `PathBase`，不需另外處理。
    - 專案 CLAUDE.md 註明發佈流程使用 `/publish-project`。
-4. **專案 CLAUDE.md**：第一行以 `@D:/Jovi/Localhost/_ClaudeCode/_Claude_Standards/CLAUDE.md` 匯入通用規範，再記錄專案用途、目錄、啟動方式、專案特有設定與待辦，並註明「本專案未使用 new-project 範本建立」。
+4. **專案 CLAUDE.md**：第一行以 `@D:/Jovi/Localhost/_ClaudeCode/_Claude_Standards/CLAUDE.md` 匯入通用規範，再記錄專案用途、目錄、啟動方式、專案特有設定與待辦，並註明「本專案未使用 new-project 範本建立」。待辦比照範本 `templates/project/CLAUDE.md`（含 IIS 應用程式集區 `AlwaysRunning`、閒置逾時 `0`、預先載入，讓背景服務持續執行）。
 5. **Migration**（第 8 項為是時）：`dotnet ef migrations add InitialCreate --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj --output-dir Data/Migrations`，再 `dotnet ef database update --project <backend 絕對路徑>\backend.csproj --startup-project <backend 絕對路徑>\backend.csproj`；確認產生的 Migration 不含明文密碼，並以 `sqlcmd` 唯讀查詢確認每張資料表與欄位都有 `MS_Description`。
 6. **git**：初始化並加入 `.gitignore`（含 `bin/`、`obj/`、`node_modules/`、`dist/`、`publish/`、後端 `wwwroot/`（發佈腳本產生）、`MailPickup/`、`Logs/`、`.env.local`、`sbom/`）；**不 commit**，於完成回報提醒使用者自行 commit。

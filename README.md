@@ -7,7 +7,7 @@
 | 路徑 | 說明 | 載入時機 |
 | --- | --- | --- |
 | `CLAUDE.md` | 通用規範 | 各專案 CLAUDE.md 匯入，每次對話載入 |
-| `references/auth-baseline.md` | 登入、密碼、忘記密碼、前端登入狀態的實作細節 | 建立或修改這些功能、資安檢查時 |
+| `references/auth-baseline.md` | 登入、密碼、到期通知、忘記密碼、前端登入狀態的實作細節 | 建立或修改這些功能、資安檢查時 |
 | `references/logging-baseline.md` | 系統錯誤紀錄（`BasicExceptionlog`）與異動歷程（`BasicSyslog`）的欄位、保留、轉存、歷程查詢 | 不使用範本建立專案、修改這些機制、資安檢查時 |
 | `references/basic-tables.md` | 基本資料表欄位與種子資料（唯一定義來源） | `new-project` 建立專案、修改基本資料表時 |
 | `rules/backend-data.md` | 異動歷程（`BasicSyslog`）寫入規則、資料表規則、Service 層寫法（自 `CLAUDE.md` 移出） | 以 junction 掛到 `%USERPROFILE%\.claude\rules`，frontmatter `paths` 為 `**/backend/**/*.cs`、`**/*.sql`：讀寫符合的檔案時自動載入（工作階段啟動時掃描，新增 rule 須開新工作階段才生效）；`add-feature`、`alter-table`、`new-project`、`owasp-check` 以 Read 明確讀取 |

@@ -10,7 +10,7 @@ paths:
 
 ## 異動歷程（BasicSyslog）的寫入規則
 
-系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`）以外的**所有**新增、修改、刪除都須寫入 `BasicSyslog`，由 `Data/BasicSyslogInterceptor.cs` 自動寫入，新功能不需另外撰寫，但須遵守：
+系統紀錄表（`BasicSyslog`、`BasicExceptionlog`、`BasicLoginErrlog`、`BasicPwdlog`、`BasicChecklogintimeSendMailLog`）以外的**所有**新增、修改、刪除都須寫入 `BasicSyslog`，由 `Data/BasicSyslogInterceptor.cs` 自動寫入，新功能不需另外撰寫，但須遵守：
 
 * 異動一律載入實體後以 `SaveChangesAsync` 存檔；不可用同步 `SaveChanges`、`ExecuteUpdate`／`ExecuteDelete`、`ExecuteSql` 等原生 SQL 異動。`Data/BasicSyslogCommandGuard.cs` 會在執行時拒絕不經 `SaveChanges` 的異動（fail closed），唯一例外是系統紀錄表轉存後以 `AllowLogArchiveDelete` 宣告的批次刪除。
 * DbContext 一律由 DI 取得，不可自行 `new AppDbContext(...)`（不會掛上攔截器）。

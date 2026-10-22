@@ -9,12 +9,13 @@ namespace backend.Services.Mail;
 public class MailTemplateStore
 {
     public const string ResetPassword = "ResetPassword";
+    public const string PasswordExpireNotice = "PasswordExpireNotice";
 
     private readonly Dictionary<string, string> _templates = new(StringComparer.Ordinal);
 
     public MailTemplateStore(IWebHostEnvironment environment)
     {
-        foreach (var name in new[] { ResetPassword })
+        foreach (var name in new[] { ResetPassword, PasswordExpireNotice })
         {
             var path = Path.Combine(environment.ContentRootPath, "Template", $"{name}.html");
             if (!File.Exists(path))

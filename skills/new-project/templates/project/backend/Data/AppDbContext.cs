@@ -17,6 +17,7 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     public DbSet<BasicGroupPermission> BasicGroupPermission => Set<BasicGroupPermission>();
     public DbSet<BasicLoginErrlog> BasicLoginErrlog => Set<BasicLoginErrlog>();
     public DbSet<BasicPwdlog> BasicPwdlog => Set<BasicPwdlog>();
+    public DbSet<BasicChecklogintimeSendMailLog> BasicChecklogintimeSendMailLog => Set<BasicChecklogintimeSendMailLog>();
     public DbSet<BasicExceptionlog> BasicExceptionlog => Set<BasicExceptionlog>();
     public DbSet<BasicSyslog> BasicSyslog => Set<BasicSyslog>();
 
@@ -107,6 +108,16 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             e.Property(x => x.CreatedAt).HasComment("設定時間（判斷密碼是否到期）");
             e.HasIndex(x => new { x.Username, x.CreatedAt });
             e.HasData(SeedData.BasicPwdlog);
+        });
+
+        modelBuilder.Entity<BasicChecklogintimeSendMailLog>(e =>
+        {
+            e.ToTable("BasicChecklogintimeSendMailLog", t => t.HasComment("密碼即將到期通知寄送紀錄（用於判斷當日是否已寄送）"));
+            e.Property(x => x.Id).HasComment("流水號");
+            e.Property(x => x.Username).HasMaxLength(50).IsRequired().HasComment("帳號");
+            e.Property(x => x.Email).HasMaxLength(256).IsRequired().HasComment("寄送時的電子郵件");
+            e.Property(x => x.CreatedAt).HasComment("寄送時間");
+            e.HasIndex(x => new { x.Username, x.CreatedAt });
         });
 
         modelBuilder.Entity<BasicExceptionlog>(e =>

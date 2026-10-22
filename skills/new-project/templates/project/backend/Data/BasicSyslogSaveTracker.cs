@@ -13,6 +13,7 @@ public class BasicSyslogSaveTracker
         nameof(Models.BasicExceptionlog),
         nameof(Models.BasicLoginErrlog),
         nameof(Models.BasicPwdlog),
+        nameof(Models.BasicChecklogintimeSendMailLog),
     };
 
     private int _saveDepth;

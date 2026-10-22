@@ -68,6 +68,7 @@ disable-model-invocation: true
 - **先清空 IIS 目錄再複製**，避免殘留舊 assets；**保留 `Logs\` 目錄**（系統錯誤紀錄轉存檔）。若正式環境保留自己的 `appsettings.json`，清空前先備份，複製後還原。
 - 應用程式集區帳號須有網站目錄 `Logs\` 的寫入權限（系統錯誤紀錄每日轉存）。
 - 應用程式集區的 `ASPNETCORE_ENVIRONMENT` 須為 `Production`（Swagger 關閉、啟用 HSTS 與 HTTPS 導向）。
+- 背景服務（密碼即將到期通知、錯誤紀錄轉存、忘記密碼佇列）須程序持續執行：IIS 預設閒置 20 分鐘即關閉程序（與 Session 無關），背景服務隨之停止，須設定應用程式集區「啟動模式」為 `AlwaysRunning`、「閒置逾時」為 `0`，站台「預先載入已啟用」為 `True`（需安裝 IIS 的 Application Initialization 功能）。程序會常駐佔用記憶體，同一主機有多個專案時一併評估。
 - 有 HTTPS 繫結時 HTTP 會自動導向 HTTPS；正式環境應設定 HTTPS 繫結。
 - IIS 加上的 `Server`、`X-Powered-By` 標頭由 `web.config` 移除（`removeServerHeader` 須 **IIS 10 以上**）。若出現 HTTP 500.19，代表 IIS 版本過舊或伺服器鎖定了 `requestFiltering`／`httpProtocol` 區段，須改由 IIS 端處理。
 - 啟動時自動套用 migration 的專案，部署前確認資料庫已備份；本次有新增 migration 時特別提醒。

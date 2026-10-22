@@ -1,6 +1,7 @@
 using backend.Data;
 using backend.Extensions;
 using backend.Services.Auth;
+using backend.Services.BasicChecklogintimeSendMails;
 using backend.Services.BasicExceptionlogs;
 using backend.Services.BasicGroups;
 using backend.Services.BasicPermissions;
@@ -57,6 +58,10 @@ var smtpPassword = string.IsNullOrEmpty(configuration["Smtp:Password"]) ? string
 
 var jwtSettings = configuration.GetSection(JwtSettings.SectionName).Get<JwtSettings>() ?? new JwtSettings();
 var securitySettings = configuration.GetSection(SecuritySettings.SectionName).Get<SecuritySettings>() ?? new SecuritySettings();
+if (securitySettings.Password.ChecklogintimeSendMailDay < 0 || securitySettings.Password.ChecklogintimeSendMailDay >= securitySettings.Password.ExpireDays)
+{
+    throw new InvalidOperationException("Security:Password:ChecklogintimeSendMailDay 須介於 0（不寄送）與 ExpireDays 之間");
+}
 
 // 不回傳 Server 標頭；限制請求大小
 const long maxRequestBodySize = 1024 * 1024;
@@ -104,6 +109,7 @@ builder.Services.AddScoped<IBasicUsersService, BasicUsersService>();
 builder.Services.AddScoped<IBasicGroupsService, BasicGroupsService>();
 builder.Services.AddHostedService<BasicExceptionlogArchiveService>();
 builder.Services.AddHostedService<MailBackgroundService>();
+builder.Services.AddHostedService<BasicChecklogintimeSendMailService>();
 
 // Controller：時間格式、模型驗證失敗與無 Body 的錯誤一律回 ApiResponse
 builder.Services.AddControllers(options =>

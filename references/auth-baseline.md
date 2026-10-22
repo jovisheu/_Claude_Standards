@@ -20,6 +20,18 @@
 * 密碼變更（逾期變更、重設、管理員代設）後，先前發出的 JWT 須立即失效：JWT 帶入由密碼雜湊推導的安全戳記（不放雜湊本身），`OnTokenValidated` 查資料庫確認使用者仍啟用且戳記與目前的密碼雜湊相符（固定時間比對），不符時回 401；與啟用檢查共用同一次查詢。
 * 預設管理員與預設一般使用者首次登入不強制變更密碼（種子的密碼歷程設為建立專案當日，依密碼有效天數正常到期）；種子定義見 `basic-tables.md`。
 
+## 密碼即將到期通知
+
+* 到期提醒天數為 `appsettings.json` 的 `Security:Password:ChecklogintimeSendMailDay`（預設 10）；0 表示不寄送，須小於 `Security:Password:ExpireDays`，超出範圍時拒絕啟動。
+* 通知區間：到期日（最後一次密碼歷程時間 + `ExpireDays`）前 `ChecklogintimeSendMailDay` 天（含）起，至到期時間為止；已逾期者登入時會強制變更，不再通知。只通知啟用中的使用者，無密碼歷程者不通知。
+* 區間內每位使用者每日寄送一封；當日已寄送（`BasicChecklogintimeSendMailLog` 有當日紀錄）即不再寄送，也不補寄過去未寄的日期。變更密碼後到期日重新計算，自然離開區間。
+* 由背景服務（`BackgroundService`）於啟動時執行一次，之後每小時檢查一次（伺服器於固定時刻停機時，當日仍會寄出）。
+  * 每小時的檢查須程序持續執行；部署於 IIS 時須設定應用程式集區不閒置關閉（`AlwaysRunning`、閒置逾時 `0`、預先載入，見 `publish-project` 部署提醒），否則只在閒置後的下一個請求啟動時檢查。
+  * 測試時直接修改 `BasicPwdlog.CreatedAt` 不會立即觸發，須等下一次檢查或重新啟動應用程式（回收應用程式集區）。
+* 寄送成功才寫入 `BasicChecklogintimeSendMailLog`（帳號、寄送時的 Email、寄送時間）；寄送失敗寫入 `BasicExceptionlog`（訊息以固定文字取代，不含收件人），下次檢查重試。
+* 本表屬系統紀錄表，列入 `BasicSyslogSaveTracker.LogTables`，不寫入異動歷程。表中的 Email 為業務需要的寄送紀錄；`ILogger` 仍只記帳號，不記收件人與內文。
+* 郵件只說明到期時間、剩餘天數與登入網址（取自 `App:FrontendUrl`），不含密碼或任何 token；範本規則同忘記密碼（放 `Template/`、啟動時載入、動態資料先 HTML 編碼）。
+
 ## 忘記密碼
 
 * 嚴禁以 Email 寄送密碼（含臨時密碼），只寄一次性、限時的重設連結，由使用者自行設定新密碼；設定成功後連結立即失效。
