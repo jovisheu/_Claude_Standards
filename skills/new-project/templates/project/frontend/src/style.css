@@ -61,19 +61,36 @@
 }
 
 @layer components {
-  .data-table {
-    @apply min-w-full divide-y divide-gray-200 text-sm;
+  /* 列表外框：資料超過可視高度時於框內捲動，讓標題列固定（至少保留 15rem） */
+  .data-table-wrap {
+    @apply overflow-auto;
+    max-height: max(15rem, calc(100vh - 20rem));
   }
 
+  .data-table {
+    @apply min-w-full text-sm;
+  }
+
+  /* 標題列固定；表格框線會隨捲動移走，下框線改用陰影 */
   .data-table th {
-    @apply bg-gray-50 px-4 py-3 text-left font-semibold whitespace-nowrap text-gray-600;
+    @apply sticky top-0 z-10 bg-gray-100 px-4 py-3 text-left font-semibold whitespace-nowrap text-gray-600 shadow-[inset_0_-1px_0_var(--color-gray-200)];
   }
 
   .data-table td {
     @apply px-4 py-3 align-top text-gray-800;
   }
 
+  /* 第一欄「項次」：置中、等寬數字、不換行 */
+  .data-table .row-number {
+    @apply w-1 text-center whitespace-nowrap tabular-nums;
+  }
+
+  /* 偶數列底色，放在 hover 之前讓滑鼠移入的底色優先 */
+  .data-table tbody tr:nth-child(even) {
+    @apply bg-gray-50;
+  }
+
   .data-table tbody tr {
-    @apply border-t border-gray-100 hover:bg-primary-50/40;
+    @apply border-t border-gray-100 hover:bg-primary-50;
   }
 }

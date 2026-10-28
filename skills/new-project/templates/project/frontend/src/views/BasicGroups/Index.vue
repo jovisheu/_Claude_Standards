@@ -5,7 +5,7 @@ import BasicSyslogModal from '@/components/BasicSyslogModal.vue'
 import { isHandled } from '@/api/http'
 import { useAuthStore } from '@/stores/auth'
 import { useMessageStore } from '@/stores/message'
-import { formatModifiedAt } from '@/utils/format'
+import { formatModifiedAt, formatRowNumber } from '@/utils/format'
 import BasicGroupFormModal from './components/BasicGroupFormModal.vue'
 import {
   createBasicGroup,
@@ -26,7 +26,7 @@ const canUpdate = computed(() => auth.hasBasicPermission('basicgroup.update'))
 const canDelete = computed(() => auth.hasBasicPermission('basicgroup.delete'))
 // 沒有編輯、刪除權限時不顯示操作欄（歷程需要編輯權限）
 const hasActions = computed(() => canUpdate.value || canDelete.value)
-const columnCount = computed(() => (hasActions.value ? 6 : 5))
+const columnCount = computed(() => (hasActions.value ? 7 : 6))
 
 const query = reactive({ page: 1, pageSize: 10, keyword: '' })
 const items = ref<BasicGroupListItem[]>([])
@@ -131,10 +131,11 @@ onMounted(load)
     </form>
 
     <div class="card overflow-hidden">
-      <div class="overflow-x-auto">
+      <div class="data-table-wrap">
         <table class="data-table">
           <thead>
             <tr>
+              <th class="row-number">項次</th>
               <th>群組名稱</th>
               <th>說明</th>
               <th>成員數</th>
@@ -150,7 +151,8 @@ onMounted(load)
             <tr v-else-if="items.length === 0">
               <td :colspan="columnCount" class="py-8 text-center text-gray-500">查無資料</td>
             </tr>
-            <tr v-for="item in loading ? [] : items" :key="item.id">
+            <tr v-for="(item, index) in loading ? [] : items" :key="item.id">
+              <td class="row-number">{{ formatRowNumber(query.page, query.pageSize, index) }}</td>
               <td>
                 {{ item.name }}
                 <span v-if="item.isProtected" class="ml-1 rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800">受保護</span>

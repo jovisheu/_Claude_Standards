@@ -88,6 +88,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - 只接收 DTO，回傳 `ApiResponse<T>`；分頁用 `ApiResponse.Paged`；操作者以 `User.GetBasicUserId()` 傳入 Service。
    - 寫入端點標上異動歷程預設說明：`[BasicSyslogDescription("新增<功能名稱>")]`、`("編輯<功能名稱>")`、`("刪除<功能名稱>")`；規格含審核、狀態變更等需依結果區分的動作時，Service 於 `SaveChangesAsync` 前呼叫 `basicSyslogContext.Describe(...)`（如「審核通過」「退回：<原因代碼>」）。
    - 異動歷程端點：`[HttpGet("{id:int}/basicsyslogs")]`、Policy 為 `<Table>Update`，呼叫 `basicSyslogHistoryService.GetRecordHistoryAsync(nameof(<Table>), id, 關聯表...)`，回傳 `ApiResponse<BasicSyslogHistoryResult>`。
+   - 歷程畫面的外鍵顯示名稱：新資料表的外鍵指向其他資料表時，確認被指向的資料表已列於 `Services/BasicSyslogs/BasicSyslogHistoryService.cs` 的 `NameLoaders`（基本資料表已列）；指向業務資料表時加入一行（以該表的名稱欄位，如 `x => x.Title`，不用代碼欄位），否則歷程會顯示原始編號（見 `references\logging-baseline.md`「單筆資料的歷程查詢」）。
 7. **Program.cs**：`builder.Services.AddScoped<I<Feature>Service, <Feature>Service>();`（加在既有業務服務之後）。
 8. **機密欄位**（有時）：加入 `Data/BasicSyslogInterceptor.cs` 的 `MaskedProperties`（`"<Table>.<欄位>"`），且不放入任何回傳 DTO。
 
@@ -98,7 +99,7 @@ description: 在依 _Claude_Standards 建立的既有專案中新增業務功能
    - `api.ts`：`get<Feature>(query)`、`get<Table>(id)`、`get<Table>BasicSyslogs(id)`、`create<Table>(form)`、`update<Table>(id, form)`、`delete<Table>(id)`；一律使用 `src/api/http.ts` 的 `get`／`post`／`put`／`del<T>`，回傳 `ApiResponse<T>`（資料取 `.datas`）。
    - `routes.ts`：path 與 name 為 `<feature>`，`meta: { title: '<功能名稱>', basicPermission: '<table>.read', menu: { title: '<功能名稱>', description: '<一句說明>', order: <接續最大值> } }`。
    - `components/<Table>FormModal.vue`：新增與編輯共用，`defineModel` 控制開關、`item` prop（`null` 為新增），開啟時重設表單，送出以事件交回 `Index.vue`；前端檢查只為使用體驗，長度上限與後端一致。
-   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見 `rules\frontend-ui.md`；兩種權限都沒有時整個操作欄不渲染）；「歷程」以 `BasicSyslogModal` 顯示（傳入 `:load="() => get<Table>BasicSyslogs(id)"`，元件自行載入）；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
+   - `Index.vue`：比照 `BasicUsers/Index.vue`——查詢列、表格、分頁；表格沿用共用樣式 `<div class="data-table-wrap"><table class="data-table">`（標題列固定、偶數列底色，見 `rules\frontend-ui.md`），不另寫表格樣式；第一欄為「項次」（`class="row-number"`、`formatRowNumber(query.page, query.pageSize, index)`，`columnCount` 含此欄）；「異動時間」欄以 `formatModifiedAt(item)` 顯示；操作欄依 `update`／`delete` 權限以 `v-if` 渲染「編輯」「歷程」「刪除」（無權限或資料受保護時不渲染，不用 `disabled`／`v-show`，見 `rules\frontend-ui.md`；兩種權限都沒有時整個操作欄不渲染）；「歷程」以 `BasicSyslogModal` 顯示（傳入 `:load="() => get<Table>BasicSyslogs(id)"`，元件自行載入）；操作結果以訊息視窗顯示，catch 只在 `!isHandled(error)` 時補顯示「操作失敗，請再試一次」。
    - 一律以 `{{ }}` 輸出，不使用 `v-html`；站內路徑以 `import.meta.env.BASE_URL` 組成。
 2. 不需修改 `src/router/index.ts` 與 `src/layouts/menu.ts`：`src/router/featureRoutes.ts` 自動載入各功能的 `routes.ts`，`meta.menu` 同時產生側邊選單與首頁功能卡片（依 `meta.basicPermission` 過濾）。
    - 專案沒有 `src/router/featureRoutes.ts`（以舊版範本建立）時，沿用該專案的寫法：`src/router/index.ts` 匯入並加入路由、`src/layouts/menu.ts` 加入選單項目（首頁卡片同步出現）；`api.ts` 與 `BasicSyslogModal` 的用法也比照該專案既有的 `BasicUsers`。

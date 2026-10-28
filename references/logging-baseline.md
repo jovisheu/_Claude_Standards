@@ -35,6 +35,7 @@
 * 各功能提供 `GET /api/{功能}/{id}/basicsyslogs`，Policy 為該資料表的 `update` 權限（如 `basicuser.update`；可編輯者才能檢視，歷程含異動前後的完整欄位值與操作者），呼叫 `IBasicSyslogHistoryService.GetRecordHistoryAsync(主表, id, 關聯表...)`。
 * 以 `OPENJSON`／`JSON_VALUE` 參數化查詢比對主表的 `Id`（SQL Server 2019 支援），並列出關聯表中 `{主表}Id` 相符的異動；因此修改時一律更新主表的 `UpdatedAt`，只改關聯表的異動才會被查到。
 * 以資料表與欄位描述（`HasComment`）作為畫面上的顯示名稱時，描述只存在設計時模型，須以 `db.GetService<IDesignTimeModel>().Model` 讀取（可快取）；從 `db.Model`（執行時模型）呼叫 `GetComment()` 會丟出 `InvalidOperationException`。
+* 畫面不顯示內部編號：單一欄位主鍵（流水號）不列出；外鍵改顯示指向資料的名稱（使用者顯示名稱、群組名稱、權限說明，不顯示 `basicuser.read` 等代碼），欄位名稱去除描述中的「（資料表.欄位）」與結尾的「編號」（如「權限編號（BasicPermission.Id）」顯示為「權限」）；指向的資料已刪除時顯示「（已刪除）」。名稱來源列於 `BasicSyslogHistoryService.NameLoaders`，業務資料表被其他資料表以外鍵參照時須加入（未列出者顯示原始編號）。轉存 txt 保留原始值，不換成名稱。
 * 只顯示資料庫內保留天數內的紀錄；回傳 `BasicSyslogHistoryResult`（`RetentionDays` + `Items`），前端提示的保留天數取自 `RetentionDays`，不寫死。
 
 ## 轉存目錄

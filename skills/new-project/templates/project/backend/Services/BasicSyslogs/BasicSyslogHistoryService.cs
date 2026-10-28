@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text.Json;
 using backend.Data;
 using backend.DTOs.BasicSyslogs;
+using backend.Models;
 using backend.Settings;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
@@ -13,6 +14,22 @@ namespace backend.Services.BasicSyslogs;
 public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSettings> settings) : IBasicSyslogHistoryService
 {
     private const int MaxItems = 200;
+    private const string DeletedName = "（已刪除）";
+
+    /// <summary>
+    /// 外鍵以指向資料的名稱取代編號顯示（使用者顯示名稱、群組名稱、權限說明），不顯示編號與權限代碼；
+    /// 業務資料表被其他資料表以外鍵參照時，於此加入其名稱欄位，未列出的資料表顯示原始值
+    /// </summary>
+    private static readonly Dictionary<string, Func<AppDbContext, List<int>, Task<Dictionary<int, string>>>> NameLoaders =
+        new(StringComparer.Ordinal)
+        {
+            [nameof(BasicUser)] = (db, ids) => db.BasicUser.AsNoTracking()
+                .Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.DisplayName),
+            [nameof(BasicGroup)] = (db, ids) => db.BasicGroup.AsNoTracking()
+                .Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Name),
+            [nameof(BasicPermission)] = (db, ids) => db.BasicPermission.AsNoTracking()
+                .Where(x => ids.Contains(x.Id)).ToDictionaryAsync(x => x.Id, x => x.Description ?? "（未說明）"),
+        };
 
     public async Task<BasicSyslogHistoryResult> GetRecordHistoryAsync(string table, int id, params string[] relatedTables)
     {
@@ -47,13 +64,14 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
         var related = relatedTables.ToHashSet(StringComparer.Ordinal);
         var foreignKey = $"{table}Id";
         var metas = GetMetas();
+        var foreignFields = new List<(BasicSyslogHistoryField Field, string Table)>();
 
         var items = new List<BasicSyslogHistoryItem>();
         foreach (var log in logs)
         {
             var before = ParseRows(log.BeforeData, table, idText, related, foreignKey);
             var after = ParseRows(log.AfterData, table, idText, related, foreignKey);
-            var rows = CompareRows(table, before, after, metas);
+            var rows = CompareRows(table, before, after, metas, foreignFields);
             if (rows.Count == 0)
             {
                 continue;
@@ -70,8 +88,35 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
             });
         }
 
+        await ResolveForeignNamesAsync(foreignFields);
         return new BasicSyslogHistoryResult { RetentionDays = retentionDays, Items = items };
     }
+
+    /// <summary>外鍵值換成名稱（每個資料表查詢一次）；指向的資料已刪除時顯示「（已刪除）」</summary>
+    private async Task ResolveForeignNamesAsync(List<(BasicSyslogHistoryField Field, string Table)> foreignFields)
+    {
+        foreach (var group in foreignFields.GroupBy(f => f.Table, StringComparer.Ordinal))
+        {
+            var ids = group
+                .SelectMany(f => new[] { ParseId(f.Field.Before), ParseId(f.Field.After) })
+                .OfType<int>()
+                .Distinct()
+                .ToList();
+            var names = ids.Count == 0 ? new Dictionary<int, string>() : await NameLoaders[group.Key](db, ids);
+
+            foreach (var (field, _) in group)
+            {
+                field.Before = ToName(field.Before, names);
+                field.After = ToName(field.After, names);
+            }
+        }
+    }
+
+    private static int? ParseId(string? raw)
+        => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var id) ? id : null;
+
+    private static string? ToName(string? raw, Dictionary<int, string> names)
+        => ParseId(raw) is { } id ? names.GetValueOrDefault(id, DeletedName) : raw;
 
     /// <summary>取出與該筆資料相關的資料列，以（資料表, 主鍵）為鍵</summary>
     private static Dictionary<(string Table, string Key), Dictionary<string, string?>> ParseRows(
@@ -106,7 +151,8 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
         string mainTable,
         Dictionary<(string Table, string Key), Dictionary<string, string?>> before,
         Dictionary<(string Table, string Key), Dictionary<string, string?>> after,
-        IReadOnlyDictionary<string, TableMeta> metas)
+        IReadOnlyDictionary<string, TableMeta> metas,
+        List<(BasicSyslogHistoryField Field, string Table)> foreignFields)
     {
         var rows = new List<BasicSyslogHistoryRow>();
         foreach (var key in before.Keys.Union(after.Keys))
@@ -128,14 +174,27 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
                     continue;
                 }
 
+                // 主鍵（流水號）為內部編號，不顯示
                 var field = meta?.Fields.GetValueOrDefault(name);
-                fields.Add(new BasicSyslogHistoryField
+                if (field?.IsPrimaryKey == true)
+                {
+                    continue;
+                }
+
+                var historyField = new BasicSyslogHistoryField
                 {
                     Name = name,
                     Label = field?.Label ?? name,
                     Before = Display(beforeValue, field?.ClrType),
                     After = Display(afterValue, field?.ClrType),
-                });
+                };
+                fields.Add(historyField);
+
+                // 外鍵於全部歷程整理完後一次換成名稱
+                if (field?.ForeignTable is { } foreignTable)
+                {
+                    foreignFields.Add((historyField, foreignTable));
+                }
             }
 
             if (fields.Count == 0)
@@ -156,7 +215,9 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
         return rows.OrderBy(r => r.Table == mainTable ? 0 : 1).ThenBy(r => r.Table, StringComparer.Ordinal).ToList();
     }
 
-    private sealed record FieldMeta(string Label, Type ClrType);
+    /// <param name="IsPrimaryKey">單一欄位主鍵（流水號），不顯示；關聯表的複合主鍵為外鍵，不在此列</param>
+    /// <param name="ForeignTable">外鍵指向且列於 NameLoaders 的資料表，顯示時換成名稱</param>
+    private sealed record FieldMeta(string Label, Type ClrType, bool IsPrimaryKey, string? ForeignTable);
 
     private sealed record TableMeta(string Label, Dictionary<string, FieldMeta> Fields);
 
@@ -180,13 +241,35 @@ public class BasicSyslogHistoryService(AppDbContext db, IOptions<BasicSyslogSett
                 continue;
             }
 
-            var fields = entityType.GetProperties()
-                .ToDictionary(p => p.Name, p => new FieldMeta(p.GetComment() ?? p.Name, p.ClrType), StringComparer.Ordinal);
+            var keyProperties = entityType.FindPrimaryKey()?.Properties;
+            var singleKey = keyProperties is { Count: 1 } ? keyProperties[0] : null;
+            var fields = entityType.GetProperties().ToDictionary(p => p.Name, p =>
+            {
+                var label = p.GetComment() ?? p.Name;
+                var foreignTable = p.GetContainingForeignKeys()
+                    .Select(fk => fk.PrincipalEntityType.GetTableName())
+                    .FirstOrDefault(t => t is not null && NameLoaders.ContainsKey(t));
+                return new FieldMeta(
+                    foreignTable is null ? label : ToForeignLabel(label),
+                    p.ClrType,
+                    ReferenceEquals(p, singleKey),
+                    foreignTable);
+            }, StringComparer.Ordinal);
             metas[tableName] = new TableMeta(entityType.GetComment() ?? tableName, fields);
         }
 
         _metas = metas;
         return metas;
+    }
+
+    /// <summary>
+    /// 外鍵顯示名稱：去除描述中指向的資料表欄位與結尾的「編號」，如「權限編號（BasicPermission.Id）」→「權限」
+    /// </summary>
+    private static string ToForeignLabel(string comment)
+    {
+        var index = comment.IndexOf('（');
+        var label = (index > 0 ? comment[..index] : comment).Trim();
+        return label.Length > 2 && label.EndsWith("編號", StringComparison.Ordinal) ? label[..^2] : label;
     }
 
     /// <summary>JSON 值轉為原始文字（先以原始值判斷是否變動，顯示時再格式化）</summary>
